@@ -25,7 +25,7 @@ Per car the integration currently exposes:
   - High-level status (charging / running / ac_on / idle)
   - **Per-car "Last Updated"** (diagnostic): reports the ISO 8601 timestamp of the last direct reading from the car. The sensor is created per VIN, shows the most recent timestamp found in `ev_info.last_updated`, `location.last_updated`, or `last_connection`, and has the unique id pattern `ha_opencarwings_last_updated_<VIN>`.
   - A top-level `OpenCARWINGS Cars` sensor listing your cars and VINs
-- Device tracker: car GPS (uses `last_location` / `location` returned by the API)
+- Device tracker: car GPS (uses `last_location` / `location` returned by the API). The tracker/visible name prefers the car's `nickname` if present, otherwise it falls back to `model_name`. The visible name intentionally excludes the VIN and the "Car" prefix (for example, "MyCar Tracker"). The tracker entity keeps a stable `unique_id` of the form `ha_opencarwings_tracker_<VIN>`.
 - Switch: A/C control (on/off) — sends commands to the car via the OpenCARWINGS command endpoint
 
 ---
@@ -42,6 +42,20 @@ recorder:
 ```
 
 This will prevent per-car `Last Updated` sensors from being stored in your database and showing up in history charts.
+
+---
+
+## Entity names & unique IDs 🔎
+
+A few helpful naming/ID patterns to identify entities created by the integration:
+
+- Device tracker name: uses `nickname` when available, otherwise `model_name`. Visible name example: `MyCar Tracker`.
+- Tracker unique_id: `ha_opencarwings_tracker_<VIN>`
+- Per-car "Last Updated" sensor: `ha_opencarwings_last_updated_<VIN>`
+- Battery sensor: `ha_opencarwings_battery_<VIN>`
+- A/C switch: `ha_opencarwings_ac_<VIN>`
+
+These stable IDs are useful when excluding entities from the recorder or when writing automations targeting specific cars.
 
 These entities are created per-VIN and appear as devices in the Integrations UI.
 

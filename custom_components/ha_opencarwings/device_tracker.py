@@ -52,7 +52,9 @@ class CarTracker(TrackerEntity):
     @property
     def name(self) -> str:
         car = self._get_car()
-        return f"{car.get('model_name') or f'Car {self._vin}'} Tracker"
+        # Prefer nickname when available; fall back to model name. Avoid showing "Car" and VIN in the visible name.
+        visible = car.get("nickname") or car.get("model_name") or "Tracker"
+        return f"{visible} Tracker"
 
     @property
     def unique_id(self) -> str:
@@ -97,4 +99,5 @@ class CarTracker(TrackerEntity):
     @property
     def device_info(self) -> dict[str, Any]:
         car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name")}
+        # Use nickname for device name when available; fall back to model_name
+        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("nickname") or car.get("model_name")}
