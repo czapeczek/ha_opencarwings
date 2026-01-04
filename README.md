@@ -23,9 +23,25 @@ Per car the integration currently exposes:
   - Range (A/C on / A/C off)
   - Charge cable plugged in (plugged / unplugged)
   - High-level status (charging / running / ac_on / idle)
+  - **Per-car "Last Updated"** (diagnostic): reports the ISO 8601 timestamp of the last direct reading from the car. The sensor is created per VIN, shows the most recent timestamp found in `ev_info.last_updated`, `location.last_updated`, or `last_connection`, and has the unique id pattern `ha_opencarwings_last_updated_<VIN>`.
   - A top-level `OpenCARWINGS Cars` sensor listing your cars and VINs
 - Device tracker: car GPS (uses `last_location` / `location` returned by the API)
 - Switch: A/C control (on/off) — sends commands to the car via the OpenCARWINGS command endpoint
+
+---
+
+## History & Recorder ⚠️
+
+The per-car **Last Updated** sensors are marked as diagnostic (they're metadata, not a regularly changing state) and are typically not recorded by Home Assistant's Recorder. If you want to ensure these sensors are excluded from history/recorder, add an exclusion to your `configuration.yaml`:
+
+```yaml
+recorder:
+  exclude:
+    entity_globs:
+      - "sensor.ha_opencarwings_last_updated_*"
+```
+
+This will prevent per-car `Last Updated` sensors from being stored in your database and showing up in history charts.
 
 These entities are created per-VIN and appear as devices in the Integrations UI.
 
