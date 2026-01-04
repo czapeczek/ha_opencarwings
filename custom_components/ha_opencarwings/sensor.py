@@ -22,6 +22,11 @@ async def async_setup_entry(hass, entry, async_add_entities):
     for car in cars:
         entities.append(CarSensor(entry.entry_id, car))
         entities.append(CarBatterySensor(entry.entry_id, car))
+        entities.append(CarRangeACOnSensor(entry.entry_id, car))
+        entities.append(CarRangeACOffSensor(entry.entry_id, car))
+        entities.append(CarSoCSensor(entry.entry_id, car))
+        entities.append(CarChargeCableSensor(entry.entry_id, car))
+        entities.append(CarStatusSensor(entry.entry_id, car))
 
     async_add_entities(entities)
 
@@ -118,6 +123,127 @@ class CarBatterySensor(Entity):
         return self._car.get("battery_level") or self._car.get("state_of_charge")
 
     @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"vin": self._vin, **self._car}
+
+
+class CarRangeACOnSensor(Entity):
+    """Sensor for driving range with A/C on (if available)."""
+
+    def __init__(self, entry_id: str, car: dict) -> None:
+        self._entry_id = entry_id
+        self._car = car
+        self._vin = car.get("vin")
+
+    @property
+    def name(self) -> str:
+        return f"{self._car.get('model_name') or 'Car'} Range (A/C on)"
+
+    @property
+    def unique_id(self) -> str:
+        return f"ha_opencarwings_range_acon_{self._vin}"
+
+    @property
+    def state(self) -> int | None:
+        ev = self._car.get("ev_info", {}) or {}
+        return ev.get("range_acon") or self._car.get("range_acon")
+
+
+class CarRangeACOffSensor(Entity):
+    """Sensor for driving range with A/C off (if available)."""
+
+    def __init__(self, entry_id: str, car: dict) -> None:
+        self._entry_id = entry_id
+        self._car = car
+        self._vin = car.get("vin")
+
+    @property
+    def name(self) -> str:
+        return f"{self._car.get('model_name') or 'Car'} Range (A/C off)"
+
+    @property
+    def unique_id(self) -> str:
+        return f"ha_opencarwings_range_acoff_{self._vin}"
+
+    @property
+    def state(self) -> int | None:
+        ev = self._car.get("ev_info", {}) or {}
+        return ev.get("range_acoff") or self._car.get("range_acoff")
+
+
+class CarSoCSensor(Entity):
+    """Sensor for state of charge (percentage)."""
+
+    def __init__(self, entry_id: str, car: dict) -> None:
+        self._entry_id = entry_id
+        self._car = car
+        self._vin = car.get("vin")
+
+    @property
+    def name(self) -> str:
+        return f"{self._car.get('model_name') or 'Car'} State of Charge"
+
+    @property
+    def unique_id(self) -> str:
+        return f"ha_opencarwings_soc_{self._vin}"
+
+    @property
+    def state(self) -> int | None:
+        ev = self._car.get("ev_info", {}) or {}
+        return ev.get("soc") or ev.get("soc_display") or self._car.get("state_of_charge") or self._car.get("battery_level")
+
+
+class CarChargeCableSensor(Entity):
+    """Sensor indicating if charge cable is plugged in."""
+
+    def __init__(self, entry_id: str, car: dict) -> None:
+        self._entry_id = entry_id
+        self._car = car
+        self._vin = car.get("vin")
+
+    @property
+    def name(self) -> str:
+        return f"{self._car.get('model_name') or 'Car'} Charge Cable"
+
+    @property
+    def unique_id(self) -> str:
+        return f"ha_opencarwings_plugged_in_{self._vin}"
+
+    @property
+    def state(self) -> str | None:
+        ev = self._car.get("ev_info", {}) or {}
+        plugged = ev.get("plugged_in") if isinstance(ev, dict) else None
+        if plugged is None:
+            plugged = self._car.get("plugged_in")
+        return "plugged" if plugged else "unplugged"
+
+
+class CarStatusSensor(Entity):
+    """High-level status string for the car (charging, running, ac_on, idle)."""
+
+    def __init__(self, entry_id: str, car: dict) -> None:
+        self._entry_id = entry_id
+        self._car = car
+        self._vin = car.get("vin")
+
+    @property
+    def name(self) -> str:
+        return f"{self._car.get('model_name') or 'Car'} Status"
+
+    @property
+    def unique_id(self) -> str:
+        return f"ha_opencarwings_status_{self._vin}"
+
+    @property
+    def state(self) -> str:
+        ev = self._car.get("ev_info", {}) or {}
+        if ev.get("charging"):
+            return "charging"
+        if ev.get("car_running"):
+            return "running"
+        if ev.get("ac_status"):
+            return "ac_on"
+        return "idle"
     def device_info(self) -> dict:
         return {"identifiers": {(DOMAIN, self._vin)}, "name": self._car.get("model_name")}
 

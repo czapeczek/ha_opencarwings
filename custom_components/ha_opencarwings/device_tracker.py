@@ -23,7 +23,7 @@ class CarTracker(TrackerEntity):
 
     @property
     def name(self) -> str:
-        return f"{self._car.get('model_name') or 'Car'} Tracker"
+        return f"{self._car.get('model_name') or f'Car {self._vin}'} Tracker"
 
     @property
     def unique_id(self) -> str:
@@ -57,6 +57,11 @@ class CarTracker(TrackerEntity):
         if isinstance(loc, dict):
             return loc.get("name") or loc.get("address")
         return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        # Expose VIN and basic car data so it's visible on the entity
+        return {"vin": self._vin, **self._car}
 
     @property
     def device_info(self) -> dict[str, Any]:
