@@ -6,9 +6,11 @@ Nice, lightweight Home Assistant integration that connects to the OpenCARWINGS A
 
 ---
 
-## Thank you 🙏
+## Support the project ☕
 
-A big thank you to the OpenCARWINGS project for providing the reverse-engineered API that makes this integration possible: https://github.com/developerfromjokela/opencarwings
+This is my first integration for HA. If you find it useful I'd really appreciate if you buy me a coffe:
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/gbraad)
+
 
 ---
 
@@ -69,13 +71,7 @@ Contributions, fixes and improvements are welcome!
 
 ---
 
-## Support the project ☕
+## Thank you 🙏
 
-If you find this integration useful and would like to support continued development, feel free to buy me a coffee:
-https://buymeacoffee.com/czapeczek 
-
-
----
-
-> If you use this integration, please consider starring the repository — it helps others discover it! Thank you 💙
+A big thank you to the OpenCARWINGS project for providing the reverse-engineered API that makes this integration possible: https://github.com/developerfromjokela/opencarwings
 

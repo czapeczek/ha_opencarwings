@@ -30,9 +30,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entities.append(CarSoCSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
         entities.append(CarChargeCableSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
         entities.append(CarStatusSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-
-    # Add a global "Last Updated" sensor (diagnostic) that shows the most recent timestamp observed for any car
-    entities.append(LastUpdatedSensor(entry.entry_id, cars=cars, coordinator=coordinator))
+        # Per-car Last Updated sensor that reads timestamps from the car's data
+        entities.append(CarLastUpdatedSensor(entry.entry_id, car=car, coordinator=coordinator, vin=vin))
 
     async_add_entities(entities)
 
@@ -436,8 +435,8 @@ class CarStatusSensor(Entity):
         return {"vin": self._vin, "battery_raw": car.get("battery")}
 
 
-class LastUpdatedSensor(Entity):
-    """A simple diagnostic sensor providing the most recent timestamp observed in car data."""
+class CarLastUpdatedSensor(Entity):
+    """Per-car diagnostic sensor providing the most recent timestamp observed in that car's data."""
 
     # Try to set EntityCategory if available, otherwise fall back to a string constant so tests don't break
     try:
@@ -446,23 +445,38 @@ class LastUpdatedSensor(Entity):
     except Exception:
         _DIAGNOSTIC = "diagnostic"
 
-    def __init__(self, entry_id: str, cars: list[dict] | None = None, coordinator=None) -> None:
+    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
         self._entry_id = entry_id
         self._coordinator = coordinator
-        self._cars = cars or []
+        self._car = car or {}
+        self._vin = vin or self._car.get("vin")
+
+    def _get_car(self) -> dict:
+        if self._coordinator and self._coordinator.data is not None:
+            for c in self._coordinator.data:
+                if c.get("vin") == self._vin:
+                    return c
+            return self._car
+        return self._car
 
     @property
     def name(self) -> str:
-        return "OpenCARWINGS Last Updated"
+        car = self._get_car()
+        return f"{car.get('model_name') or 'Car'} Last Updated"
 
     @property
     def unique_id(self) -> str:
-        return f"ha_opencarwings_last_updated_{self._entry_id}"
+        return f"ha_opencarwings_last_updated_{self._vin}"
 
     @property
     def entity_category(self):
         # Mark as diagnostic so HA (and recorder) can treat it as non-essential metadata
         return self._DIAGNOSTIC
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        car = self._get_car()
+        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
 
     def _parse_ts(self, value: str):
         from datetime import datetime, timezone
@@ -478,17 +492,16 @@ class LastUpdatedSensor(Entity):
 
     @property
     def state(self) -> str:
-        # Find the latest timestamp among ev_info.last_updated and location.last_updated across cars
+        # Look for per-car timestamps: prefer ev_info.last_updated then location.last_updated, fall back to generic last_connection
+        car = self._get_car()
         latest = None
-        for car in (self._coordinator.data if self._coordinator and self._coordinator.data is not None else self._cars):
-            ev = car.get("ev_info") or {}
-            loc = car.get("location") or {}
-            for key in (ev.get("last_updated"), loc.get("last_updated")):
-                ts = self._parse_ts(key) if isinstance(key, str) else None
-                if ts and (latest is None or ts > latest):
-                    latest = ts
+        ev = car.get("ev_info") or {}
+        loc = car.get("location") or {}
+        for key in (ev.get("last_updated"), loc.get("last_updated"), car.get("last_connection")):
+            ts = self._parse_ts(key) if isinstance(key, str) else None
+            if ts and (latest is None or ts > latest):
+                latest = ts
         if latest:
-            # prefer Z for UTC
             ts = latest.isoformat()
             if ts.endswith("+00:00"):
                 ts = ts.replace("+00:00", "Z")
