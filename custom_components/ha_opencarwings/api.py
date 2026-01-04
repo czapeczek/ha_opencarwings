@@ -91,6 +91,24 @@ class OpenCarWingsAPI:
         self._access = access
         return access
 
+    async def async_get_cars(self) -> list:
+        """Retrieve a list of cars for the authenticated account.
+
+        Returns a list of car objects (as dictionaries) on success.
+        Raises RequestError or AuthenticationError on failures.
+        """
+        resp = await self.async_request("GET", "/api/car/")
+        if resp.status == 401:
+            raise AuthenticationError("Not authorized to fetch cars")
+        if resp.status != 200:
+            text = await resp.text()
+            _LOGGER.debug("Failed to fetch cars: %s %s", resp.status, text)
+            raise RequestError(f"Failed fetching cars: {resp.status}")
+
+        data = await resp.json()
+        # Expecting an array of car objects
+        return data
+
     async def async_request(self, method: str, path: str, **kwargs) -> ClientResponse:
         url = f"{self._base}{path if path.startswith('/') else '/' + path}"
         headers = kwargs.pop("headers", {}) or {}

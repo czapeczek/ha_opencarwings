@@ -18,9 +18,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     client = OpenCarWingsAPI(hass)
     client.set_tokens(entry.data.get("access_token"), entry.data.get("refresh_token"))
 
-    hass.data[DOMAIN][entry.entry_id] = client
+    # Store client in hass.data under the entry id
+    hass.data[DOMAIN][entry.entry_id] = {"client": client}
 
-    # Quick validation - try to call an endpoint to ensure the tokens work.
+    # Quick validation - try to call an endpoint to ensure the tokens work and fetch cars
     try:
         resp = await client.async_request("GET", "/api/car/")
         if resp.status == 401:
@@ -31,6 +32,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.warning("Refresh failed; requesting reauthentication")
                 hass.config_entries.async_start_reauth(entry.entry_id)
                 return False
+
+        if resp.status == 200:
+            cars = await resp.json()
+            hass.data[DOMAIN][entry.entry_id]["cars"] = cars
+        else:
+            hass.data[DOMAIN][entry.entry_id]["cars"] = []
+
     except Exception:  # pragma: no cover - network or unexpected
         _LOGGER.exception("Error while validating OpenCARWINGS tokens during setup")
         return False
