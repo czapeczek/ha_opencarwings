@@ -9,7 +9,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .api import OpenCarWingsAPI, AuthenticationError
 
 DOMAIN = "ha_opencarwings"
-PLATFORMS = ["sensor", "switch", "device_tracker"]
+PLATFORMS = ["sensor", "switch", "device_tracker", "button"]
 
 # default: 15 minutes
 DEFAULT_SCAN_INTERVAL_MIN = 15
@@ -88,6 +88,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Forward setup to platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Register integration service to allow manual refresh via service call
+    # Register only once per hass instance
+    if not hass.data[DOMAIN].get("_service_refresh_registered"):
+        async def _handle_refresh(call):
+            """Handle service call to refresh OpenCARWINGS data."""
+            entry_id = (call.data or {}).get("entry_id") if call else None
+            if entry_id:
+                data = hass.data.get(DOMAIN, {}).get(entry_id)
+                if not data:
+                    _LOGGER.warning("Refresh requested for unknown entry %s", entry_id)
+                    return
+                coord = data.get("coordinator")
+                if coord:
+                    await coord.async_request_refresh()
+            else:
+                # refresh all coordinators
+                for d in hass.data.get(DOMAIN, {}).values():
+                    coord = d.get("coordinator")
+                    if coord:
+                        await coord.async_request_refresh()
+
+        try:
+            hass.services.async_register(DOMAIN, "refresh", _handle_refresh)
+            hass.data[DOMAIN]["_service_refresh_registered"] = True
+        except Exception:
+            # If hass.services isn't available in tests/stubs, ignore
+            _LOGGER.debug("Could not register refresh service (services not available in hass stub)")
 
     _LOGGER.info("OpenCARWINGS setup complete for %s", entry.title)
     return True

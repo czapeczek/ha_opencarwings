@@ -6,5 +6,5 @@
   "iot_class": "cloud_polling",
   "documentation": "https://github.com/czapeczek/ha_opencarwings",
   "codeowners": ["@czapeczek"],
-  "platforms": ["sensor", "switch", "device_tracker"]
+  "platforms": ["sensor", "switch", "device_tracker", "button"]
 }

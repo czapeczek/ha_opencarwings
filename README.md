@@ -27,6 +27,7 @@ Per car the integration currently exposes:
   - A top-level `OpenCARWINGS Cars` sensor listing your cars and VINs
 - Device tracker: car GPS (uses `last_location` / `location` returned by the API). The tracker/visible name prefers the car's `nickname` if present, otherwise it falls back to `model_name`. The visible name intentionally excludes the VIN and the "Car" prefix (for example, "MyCar Tracker"). The tracker entity keeps a stable `unique_id` of the form `ha_opencarwings_tracker_<VIN>`.
 - Switch: A/C control (on/off) — sends commands to the car via the OpenCARWINGS command endpoint
+- Button: **Manual refresh** — a per-integration button is available to force an immediate refresh from the OpenCARWINGS service (unique id: `ha_opencarwings_refresh_<entry_id>`).
 
 ---
 
