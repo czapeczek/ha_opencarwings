@@ -2,7 +2,17 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.device_tracker import SourceType
-from homeassistant.components.device_tracker.config_entry import TrackerEntity
+
+# config_entry may not be available in minimal test stubs; provide a fallback TrackerEntity
+try:
+    from homeassistant.components.device_tracker.config_entry import TrackerEntity
+except Exception:  # pragma: no cover - tests may not provide this
+    class TrackerEntity:  # minimal fallback
+        def async_on_remove(self, _):
+            return
+        def async_add_listener(self, _):
+            return (lambda: None)
+
 
 from . import DOMAIN
 
@@ -11,18 +21,19 @@ async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = data.get("coordinator")
     cars = coordinator.data if coordinator and coordinator.data is not None else data.get("cars", [])
 
-    entities = [CarTracker(entry.entry_id, coordinator, car.get("vin")) for car in cars]
+    entities = [CarTracker(entry.entry_id, coordinator, car.get("vin"), car=car) for car in cars]
     # Tests call entity methods directly; set hass on the entities for testability
     for ent in entities:
         ent.hass = hass
     async_add_entities(entities)
 
 class CarTracker(TrackerEntity):
-    def __init__(self, entry_id: str, coordinator=None, vin: str | None = None) -> None:
+    def __init__(self, entry_id: str, coordinator=None, vin: str | None = None, car: dict | None = None) -> None:
         self._entry_id = entry_id
         self._coordinator = coordinator
         self._vin = vin
-        self._car = None
+        # store initial car data if available (tests provide this via hass.data)
+        self._car = car or {}
 
     def _get_car(self) -> dict:
         if self._coordinator and self._coordinator.data is not None:

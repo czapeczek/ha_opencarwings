@@ -393,6 +393,7 @@ class CarStatusSensor(Entity):
             return "ac_on"
         return "idle"
 
+    @property
     def device_info(self) -> dict:
         car = self._get_car()
         return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name")}
