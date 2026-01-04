@@ -118,13 +118,13 @@ Contributions, fixes and improvements are welcome!
 A big thank you to the OpenCARWINGS project for providing the reverse-engineered API that makes this integration possible: https://github.com/developerfromjokela/opencarwings
 
 <!-- Badges -->
-[releases-shield]: https://img.shields.io/github/v/release/TWOJ_GITHUB/TWOJE_REPO?style=for-the-badge
-[releases]: https://github.com/TWOJ_GITHUB/TWOJE_REPO/releases
+[releases-shield]: https://img.shields.io/github/v/release/czapeczek/ha_opencarwings?style=for-the-badge
+[releases]: https://github.com/czapeczek/ha_opencarwings/releases
 
-[commits-shield]: https://img.shields.io/github/commit-activity/y/TWOJ_GITHUB/TWOJE_REPO?style=for-the-badge
-[commits]: https://github.com/TWOJ_GITHUB/TWOJE_REPO/commits/main
+[commits-shield]: https://img.shields.io/github/commit-activity/y/czapeczek/ha_opencarwings?style=for-the-badge
+[commits]: https://github.com/czapeczek/ha_opencarwings/commits/main
 
-[license-shield]: https://img.shields.io/github/license/TWOJ_GITHUB/TWOJE_REPO?style=for-the-badge
+[license-shield]: https://img.shields.io/github/license/czapeczek/ha_opencarwings?style=for-the-badge
 
 [maintenance-shield]: https://img.shields.io/badge/maintained-yes-green.svg?style=for-the-badge
 
