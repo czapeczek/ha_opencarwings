@@ -71,11 +71,9 @@ Contributions, fixes and improvements are welcome!
 
 ## Support the project ☕
 
-If you find this integration useful and would like to support continued development, feel free to buy me a coffee or support me on Patreon:
+If you find this integration useful and would like to support continued development, feel free to buy me a coffee:
+https://buymeacoffee.com/czapeczek 
 
-[![Support on Patreon](https://img.shields.io/badge/Patreon-Support-orange?logo=patreon)](https://patreon.com/czapeczek?utm_medium=unknown&utm_source=join_link&utm_campaign=creatorshare_creator&utm_content=copyLink)  
-
-[Support on Patreon](https://patreon.com/czapeczek?utm_medium=unknown&utm_source=join_link&utm_campaign=creatorshare_creator&utm_content=copyLink)
 
 ---
 
