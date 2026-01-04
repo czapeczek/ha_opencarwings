@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from .api import OpenCarWingsAPI, AuthenticationError
 
 DOMAIN = "ha_opencarwings"
-PLATFORMS = ["sensor"]
+PLATFORMS = ["sensor", "switch", "device_tracker"]
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -9,7 +9,11 @@ from . import DOMAIN
 async def async_setup_entry(hass, entry, async_add_entities):
     data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
     cars = data.get("cars", [])
-    async_add_entities([CarTracker(entry.entry_id, car) for car in cars])
+    entities = [CarTracker(entry.entry_id, car) for car in cars]
+    # Tests call entity methods directly; set hass on the entities for testability
+    for ent in entities:
+        ent.hass = hass
+    async_add_entities(entities)
 
 class CarTracker(TrackerEntity):
     def __init__(self, entry_id: str, car: dict) -> None:

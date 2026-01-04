@@ -16,14 +16,11 @@ async def test_battery_and_location_and_switch_creation(monkeypatch):
     # set up sensors
     await sensor_mod.async_setup_entry(hass, entry, add)
 
-    # Expect CarListSensor + CarSensor + Battery + Location (4 entities)
-    assert len(added) == 4
+    # Expect CarListSensor + CarSensor + Battery (location moved to device_tracker)
+    assert len(added) == 3
 
     battery = next(x for x in added if x.unique_id == "ha_opencarwings_battery_VIN1")
     assert battery.state == 80
-
-    location = next(x for x in added if x.unique_id == "ha_opencarwings_location_VIN1")
-    assert location.state == "50.0,20.0"
 
     # Now test switch creation
     sw_added = []
@@ -36,3 +33,17 @@ async def test_battery_and_location_and_switch_creation(monkeypatch):
     assert len(sw_added) == 1
     sw = sw_added[0]
     assert sw.unique_id == "ha_opencarwings_ac_VIN1"
+
+    # device_tracker should create a tracker for the car
+    trackers = []
+
+    def tr_add(entities):
+        trackers.extend(entities)
+
+    from custom_components.ha_opencarwings import device_tracker as tracker_mod
+    await tracker_mod.async_setup_entry(hass, entry, tr_add)
+    assert len(trackers) == 1
+    t = trackers[0]
+    assert t.unique_id == "ha_opencarwings_tracker_VIN1"
+    assert t.latitude == 50.0
+    assert t.longitude == 20.0

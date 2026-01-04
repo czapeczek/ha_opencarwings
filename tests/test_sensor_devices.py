@@ -16,8 +16,8 @@ async def test_sensor_creates_car_entities():
     entry = type("E", (), {"entry_id": "e1"})()
     await sensor_mod.async_setup_entry(hass, entry, add)
 
-    # We expect one CarListSensor plus two CarSensor entities and battery/location sensors
-    assert len(added) == 7
+    # We expect one CarListSensor plus two CarSensor entities and battery sensors (location moved to device_tracker)
+    assert len(added) == 5
 
     car_entities = [e for e in added if getattr(e, "device_info", None) and e.device_info.get("identifiers")]
     vins = [list(e.device_info["identifiers"])[0][1] for e in car_entities]
