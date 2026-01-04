@@ -1,22 +1,83 @@
-This will be an OpenCARWINGS integration for HomeAssisstant.
+# OpenCARWINGS Home Assistant Integration
 
-## Authentication (JWT)
+[![Install in Home Assistant](https://my.home-assistant.io/badges/installer.svg)](https://my.home-assistant.io/redirect/integration_start?domain=ha_opencarwings)  [![HACS](https://img.shields.io/badge/HACS-Integration-blue?logo=home-assistant)](https://hacs.xyz)  [![Repository](https://img.shields.io/badge/repo-gh-blue.svg)](https://github.com/czapeczek/ha_opencarwings)
 
-This integration supports authentication using the OpenCARWINGS JWT endpoints. During setup, provide your OpenCARWINGS account username and password — the integration will obtain an access and refresh token from `https://opencarwings.viaaq.eu/api/token/obtain/` and use the `Authorization: Bearer <access>` header for API calls. Refreshes are handled automatically when the API returns 401 (expired token).
+Nice, lightweight Home Assistant integration that connects to the OpenCARWINGS API to expose your Nissan (or compatible) cars as devices in Home Assistant.
 
-## Available cars
+---
 
-On setup the integration fetches the list of cars associated with your OpenCARWINGS account from `/api/car/` and stores it in Home Assistant under `hass.data['ha_opencarwings'][<entry_id>]['cars']`.
+## Thank you 🙏
 
-A sensor `OpenCARWINGS Cars` is added which shows the number of cars as its state and exposes attributes:
+A big thank you to the OpenCARWINGS project for providing the reverse-engineered API that makes this integration possible: https://github.com/developerfromjokela/opencarwings
 
-- `cars`: full list of car objects returned by the API
-- `car_vins`: list of VINs for quick reference
+---
 
-New entities per car:
+## What it supports ✅
 
-- **Battery sensor**: `Car Battery` - reports battery level (if available).
-- **Location sensor**: `Car Location` - reports last known location (lat,lon) as a string.
-- **A/C switch**: `Car A/C` (switch) - simple control to send A/C on/off commands to the car.
+Per car the integration currently exposes:
 
-Commands sent by the A/C switch use the OpenCARWINGS `/api/command/{vin}/` endpoint.
+- Sensors
+  - Battery level / State of Charge
+  - Range (A/C on / A/C off)
+  - Charge cable plugged in (plugged / unplugged)
+  - High-level status (charging / running / ac_on / idle)
+  - A top-level `OpenCARWINGS Cars` sensor listing your cars and VINs
+- Device tracker: car GPS (uses `last_location` / `location` returned by the API)
+- Switch: A/C control (on/off) — sends commands to the car via the OpenCARWINGS command endpoint
+
+These entities are created per-VIN and appear as devices in the Integrations UI.
+
+---
+
+## Installation 🔧
+
+Choose one of the options below:
+
+1. HACS (recommended)
+   - In HACS: Integrations → three dots → Custom repositories → Add this repository as category "Integration" → Install → Restart Home Assistant
+2. Manual
+   - Copy the `custom_components/ha_opencarwings` directory into `<config>/custom_components/` on your Home Assistant host
+   - Restart Home Assistant
+   - Go to Settings → Devices & Services → Add Integration → search for **OpenCARWINGS** and follow the setup flow
+
+---
+
+## Configuration ⚙️
+
+Setup is done via the UI. You will need:
+
+- **Username** and **Password** for your OpenCARWINGS account
+- **Scan interval** (polling frequency, default: 15 minutes)
+- **API base URL** (optional — defaults to the known OpenCARWINGS endpoint)
+
+The integration obtains JWT tokens (access & refresh) during setup and refreshes tokens automatically.
+
+---
+
+## Development & Tests 🧪
+
+- Run tests with: `pytest`
+- The repository includes Home Assistant test stubs under `tests/stubs/` to make running unit tests easier.
+
+---
+
+## Reporting issues & Contributing 🤝
+
+Found a bug or want a feature? Please open an issue or a PR at: https://github.com/czapeczek/ha_opencarwings
+
+Contributions, fixes and improvements are welcome!
+
+---
+
+## Support the project ☕
+
+If you find this integration useful and would like to support continued development, feel free to buy me a coffee or support me on Patreon:
+
+[![Support on Patreon](https://img.shields.io/badge/Patreon-Support-orange?logo=patreon)](https://patreon.com/czapeczek?utm_medium=unknown&utm_source=join_link&utm_campaign=creatorshare_creator&utm_content=copyLink)  
+
+[Support on Patreon](https://patreon.com/czapeczek?utm_medium=unknown&utm_source=join_link&utm_campaign=creatorshare_creator&utm_content=copyLink)
+
+---
+
+> If you use this integration, please consider starring the repository — it helps others discover it! Thank you 💙
+
