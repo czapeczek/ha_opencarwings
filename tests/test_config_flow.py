@@ -28,6 +28,18 @@ async def test_config_flow_success(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_config_flow_scan_interval_selected(monkeypatch):
+    monkeypatch.setattr(cfg, "OpenCarWingsAPI", MockClient)
+
+    flow = OpenCARWINGSConfigFlow()
+    # provide explicit scan_interval and ensure it's persisted
+    result = await flow.async_step_user({"username": "good", "password": "p", "scan_interval": 1})
+
+    assert result["type"] == "create_entry"
+    assert result["data"]["scan_interval"] == 1
+
+
+@pytest.mark.asyncio
 async def test_config_flow_auth_failure(monkeypatch):
     monkeypatch.setattr(cfg, "OpenCarWingsAPI", MockClient)
 

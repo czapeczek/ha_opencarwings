@@ -7,8 +7,21 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
 from .api import OpenCarWingsAPI, AuthenticationError, DEFAULT_API_BASE
 
-# Scan interval choices in minutes
-SCAN_INTERVAL_OPTIONS = [1, 5, 10, 15, 30, 60, 180, 360, 720, 1440]
+# Scan interval choices in minutes with friendly labels
+SCAN_INTERVAL_CHOICES = [
+    (1, "1 minute"),
+    (5, "5 minutes"),
+    (10, "10 minutes"),
+    (15, "15 minutes (default)"),
+    (30, "30 minutes"),
+    (60, "1 hour"),
+    (180, "3 hours"),
+    (360, "6 hours"),
+    (720, "12 hours"),
+    (1440, "1 day"),
+]
+# Values used when selector is not available (fallback)
+SCAN_INTERVAL_OPTIONS = [c[0] for c in SCAN_INTERVAL_CHOICES]
 DEFAULT_SCAN_INTERVAL_MIN = 15
 
 # Default API base URL
@@ -48,11 +61,25 @@ class OpenCARWINGSConfigFlow(config_entries.ConfigFlow, domain="ha_opencarwings"
                     },
                 )
 
+        # Prefer to show a pretty select when Home Assistant's selector helpers
+        # are available; fall back to a numeric choice list otherwise.
+        try:
+            from homeassistant.helpers import selector
+
+            scan_selector = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[{"value": v, "label": l} for v, l in SCAN_INTERVAL_CHOICES]
+                )
+            )
+        except Exception:
+            # selector not available in minimal test stubs — use numeric options
+            scan_selector = vol.In(SCAN_INTERVAL_OPTIONS)
+
         data_schema = vol.Schema(
             {
                 vol.Required(CONF_USERNAME): str,
                 vol.Required(CONF_PASSWORD): str,
-                vol.Required("scan_interval", default=DEFAULT_SCAN_INTERVAL_MIN): vol.In(SCAN_INTERVAL_OPTIONS),
+                vol.Required("scan_interval", default=DEFAULT_SCAN_INTERVAL_MIN): scan_selector,
                 vol.Required("api_base_url", default=DEFAULT_API_BASE_URL): str,
             }
         )
@@ -70,10 +97,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         current_scan = self.config_entry.options.get("scan_interval", self.config_entry.data.get("scan_interval", DEFAULT_SCAN_INTERVAL_MIN))
         current_api = self.config_entry.options.get("api_base_url", self.config_entry.data.get("api_base_url", DEFAULT_API_BASE_URL))
+        try:
+            from homeassistant.helpers import selector
+
+            scan_selector = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[{"value": v, "label": l} for v, l in SCAN_INTERVAL_CHOICES]
+                )
+            )
+        except Exception:
+            scan_selector = vol.In(SCAN_INTERVAL_OPTIONS)
+
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
-                vol.Required("scan_interval", default=current_scan): vol.In(SCAN_INTERVAL_OPTIONS),
+                vol.Required("scan_interval", default=current_scan): scan_selector,
                 vol.Required("api_base_url", default=current_api): str,
             }),
         )
