@@ -12,3 +12,11 @@ A sensor `OpenCARWINGS Cars` is added which shows the number of cars as its stat
 
 - `cars`: full list of car objects returned by the API
 - `car_vins`: list of VINs for quick reference
+
+New entities per car:
+
+- **Battery sensor**: `Car Battery` - reports battery level (if available).
+- **Location sensor**: `Car Location` - reports last known location (lat,lon) as a string.
+- **A/C switch**: `Car A/C` (switch) - simple control to send A/C on/off commands to the car.
+
+Commands sent by the A/C switch use the OpenCARWINGS `/api/command/{vin}/` endpoint.
