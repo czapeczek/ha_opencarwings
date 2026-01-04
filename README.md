@@ -1,6 +1,14 @@
 # OpenCARWINGS Home Assistant Integration
 
-[![Install in Home Assistant](https://my.home-assistant.io/badges/installer.svg)](https://my.home-assistant.io/redirect/integration_start?domain=ha_opencarwings)  [![HACS](https://img.shields.io/badge/HACS-Integration-blue?logo=home-assistant)](https://hacs.xyz)  [![Repository](https://img.shields.io/badge/repo-gh-blue.svg)](https://github.com/czapeczek/ha_opencarwings)
+[![GitHub Release][releases-shield]][releases]
+[![GitHub Activity][commits-shield]][commits]
+[![License][license-shield]](LICENSE)
+
+![Project Maintenance][maintenance-shield]
+[![BuyMeCoffee][buymecoffeebadge]][buymecoffee]
+
+[![Community Forum][forum-shield]][forum]
+[![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 
 Nice, lightweight Home Assistant integration that connects to the OpenCARWINGS API to expose your Nissan (or compatible) cars as devices in Home Assistant.
 
