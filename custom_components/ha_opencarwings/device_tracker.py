@@ -19,12 +19,29 @@ from . import DOMAIN
 async def async_setup_entry(hass, entry, async_add_entities):
     data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
     coordinator = data.get("coordinator")
+
+    # Try to force a coordinator refresh before creating entities when possible
+    if coordinator and coordinator.data is None:
+        try:
+            # request refresh to populate coordinator.data
+            await coordinator.async_request_refresh()
+        except Exception:
+            # ignore refresh errors and fall back to cached cars if present
+            pass
+
     cars = coordinator.data if coordinator and coordinator.data is not None else data.get("cars", [])
 
-    entities = [CarTracker(entry.entry_id, coordinator, car.get("vin"), car=car) for car in cars]
-    # Tests call entity methods directly; set hass on the entities for testability
-    for ent in entities:
+    entities = []
+    for car in cars:
+        vin = car.get("vin")
+        # skip creating trackers for cars without a valid VIN
+        if not vin:
+            continue
+        ent = CarTracker(entry.entry_id, coordinator, vin, car=car)
+        # Tests call entity methods directly; set hass on the entities for testability
         ent.hass = hass
+        entities.append(ent)
+
     async_add_entities(entities)
 
 class CarTracker(TrackerEntity):
@@ -111,10 +128,33 @@ class CarTracker(TrackerEntity):
         return None
 
     @property
+    def available(self) -> bool:
+        """Return True when the tracker has a valid lat/lon."""
+        lat, lon = self._get_lat_lon()
+        return lat is not None and lon is not None
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         # Expose VIN and basic car data so it's visible on the entity
         car = self._get_car()
-        return {"vin": self._vin, **car}
+        # Prefer raw last_location from ev_info, then last_location, then location
+        ev = car.get("ev_info") or {}
+        raw_ev_loc = ev.get("last_location") if isinstance(ev, dict) else None
+        loc = car.get("last_location") if car.get("last_location") is not None else car.get("location")
+        if raw_ev_loc is not None:
+            raw = raw_ev_loc
+            src = "ev_info.last_location"
+        elif loc is not None:
+            raw = loc
+            src = "last_location" if car.get("last_location") is not None else "location"
+        else:
+            raw = None
+            src = None
+        attrs = {"vin": self._vin, **car}
+        attrs["last_location_raw"] = raw
+        if src:
+            attrs["last_location_source"] = src
+        return attrs
 
     @property
     def device_info(self) -> dict[str, Any]:
