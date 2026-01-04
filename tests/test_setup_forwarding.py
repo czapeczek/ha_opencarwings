@@ -29,8 +29,8 @@ async def test_forward_entry_setups_and_unload(monkeypatch):
 
     # Monkeypatch the OpenCarWingsAPI to avoid real calls
     class MockClient:
-        def __init__(self, hass):
-            pass
+        def __init__(self, hass, base_url=None):
+            self.base_url = base_url
 
         async def async_request(self, method, path, **kwargs):
             class R: status = 200

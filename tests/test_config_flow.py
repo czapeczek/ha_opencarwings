@@ -5,8 +5,8 @@ from custom_components.ha_opencarwings import config_flow as cfg
 
 
 class MockClient:
-    def __init__(self, hass=None):
-        pass
+    def __init__(self, hass=None, base_url=None):
+        self.base_url = base_url
 
     async def async_obtain_token(self, username, password):
         if username == "good":
@@ -19,11 +19,12 @@ async def test_config_flow_success(monkeypatch):
     monkeypatch.setattr(cfg, "OpenCarWingsAPI", MockClient)
 
     flow = OpenCARWINGSConfigFlow()
-    result = await flow.async_step_user({"username": "good", "password": "p"})
+    result = await flow.async_step_user({"username": "good", "password": "p", "api_base_url": "https://custom.example"})
 
     assert result["type"] == "create_entry"
     assert result["data"]["username"] == "good"
     assert result["data"]["access_token"] == "ax"
+    assert result["data"]["api_base_url"] == "https://custom.example"
 
 
 @pytest.mark.asyncio

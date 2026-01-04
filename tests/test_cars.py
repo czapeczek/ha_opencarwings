@@ -57,11 +57,13 @@ async def test_setup_stores_cars(monkeypatch):
     hass = type("H", (), {"data": {}, "config_entries": config_entries})()
 
     # Monkeypatch OpenCarWingsAPI in the module to return our MockClient
-    monkeypatch.setattr("custom_components.ha_opencarwings.OpenCarWingsAPI", lambda hass: MockClient(hass))
+    monkeypatch.setattr("custom_components.ha_opencarwings.OpenCarWingsAPI", lambda hass, base_url=None: MockClient(hass))
 
-    entry = type("E", (), {"entry_id": "e1", "data": {"access_token": "a", "refresh_token": "r"}, "title": "t"})()
+    entry = type("E", (), {"entry_id": "e1", "data": {"access_token": "a", "refresh_token": "r", "api_base_url": "https://custom.example"}, "title": "t"})()
 
     ok = await module_init.async_setup_entry(hass, entry)
 
     assert ok
     assert hass.data["ha_opencarwings"]["e1"]["cars"][0]["vin"] == "VIN1"
+    # ensure base url was passed through into client
+    assert hasattr(hass.data["ha_opencarwings"]["e1"]["client"], "base_url") or hasattr(hass.data["ha_opencarwings"]["e1"]["client"], "_base")

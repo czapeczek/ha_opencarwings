@@ -24,3 +24,16 @@ class ConfigEntry:
         self.entry_id = entry_id
         self.title = title
         self.data = data or {}
+
+
+class OptionsFlow:
+    """Minimal stub for options flow base class."""
+
+    def __init__(self, config_entry):
+        self.config_entry = config_entry
+
+    def async_create_entry(self, *, title: str, data: dict):
+        return {"type": "create_entry", "title": title, "data": data}
+
+    def async_show_form(self, *, step_id: str, data_schema=None, errors=None):
+        return {"type": "form", "step_id": step_id, "data_schema": data_schema, "errors": errors or {}}
