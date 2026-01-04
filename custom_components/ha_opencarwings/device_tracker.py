@@ -66,12 +66,32 @@ class CarTracker(TrackerEntity):
 
     def _get_lat_lon(self):
         car = self._get_car()
-        loc = car.get("last_location") or car.get("location")
-        if isinstance(loc, dict):
-            lat = loc.get("lat") or loc.get("latitude")
-            lon = loc.get("lon") or loc.get("longitude")
+
+        def parse_loc(loc):
+            # Accept dicts with 'lat'/'lon' or 'latitude'/'longitude', strings or numbers, or lists containing such dicts
+            if isinstance(loc, dict):
+                lat = loc.get("lat") if loc.get("lat") is not None else loc.get("latitude")
+                lon = loc.get("lon") if loc.get("lon") is not None else loc.get("longitude")
+                if lat is None or lon is None:
+                    return None, None
+                try:
+                    return float(str(lat).replace(',', '.')), float(str(lon).replace(',', '.'))
+                except Exception:
+                    return None, None
+            if isinstance(loc, (list, tuple)) and len(loc) > 0:
+                return parse_loc(loc[0])
+            return None, None
+
+        # Try several possible locations in order of expected usefulness
+        candidates = [car.get("last_location"), car.get("location")]
+        # Some APIs may include a nested 'last_location' in other fields
+        ev = car.get("ev_info") or {}
+        if ev.get("last_location"):
+            candidates.append(ev.get("last_location"))
+        for loc in candidates:
+            lat, lon = parse_loc(loc)
             if lat is not None and lon is not None:
-                return float(lat), float(lon)
+                return lat, lon
         return None, None
 
     @property
