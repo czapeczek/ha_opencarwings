@@ -117,3 +117,19 @@ Contributions, fixes and improvements are welcome!
 
 A big thank you to the OpenCARWINGS project for providing the reverse-engineered API that makes this integration possible: https://github.com/developerfromjokela/opencarwings
 
+<!-- Badges -->
+[releases-shield]: https://img.shields.io/github/v/release/TWOJ_GITHUB/TWOJE_REPO?style=for-the-badge
+[releases]: https://github.com/TWOJ_GITHUB/TWOJE_REPO/releases
+
+[commits-shield]: https://img.shields.io/github/commit-activity/y/TWOJ_GITHUB/TWOJE_REPO?style=for-the-badge
+[commits]: https://github.com/TWOJ_GITHUB/TWOJE_REPO/commits/main
+
+[license-shield]: https://img.shields.io/github/license/TWOJ_GITHUB/TWOJE_REPO?style=for-the-badge
+
+[maintenance-shield]: https://img.shields.io/badge/maintained-yes-green.svg?style=for-the-badge
+
+[buymecoffeebadge]: https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-yellow.svg?style=for-the-badge
+[buymecoffee]: https://www.buymeacoffee.com/czapeczek
+
+[forum-shield]: https://img.shields.io/badge/community-forum-blue.svg?style=for-the-badge
+[forum]: https://community.home-assistant.io/
