@@ -175,6 +175,11 @@ class CarBatterySensor(Entity):
         return car.get("battery_level") or car.get("state_of_charge")
 
     @property
+    def device_info(self) -> dict[str, Any]:
+        car = self._get_car()
+        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         car = self._get_car()
         return {"vin": self._vin, **car}
@@ -220,6 +225,12 @@ class CarRangeACOnSensor(Entity):
         ev = car.get("ev_info", {}) or {}
         return ev.get("range_acon") or car.get("range_acon")
 
+    @property
+    def device_info(self) -> dict[str, Any]:
+        car = self._get_car()
+        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
+
+
 
 class CarRangeACOffSensor(Entity):
     """Sensor for driving range with A/C off (if available)."""
@@ -261,6 +272,12 @@ class CarRangeACOffSensor(Entity):
         ev = car.get("ev_info", {}) or {}
         return ev.get("range_acoff") or car.get("range_acoff")
 
+    @property
+    def device_info(self) -> dict[str, Any]:
+        car = self._get_car()
+        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
+
+
 
 class CarSoCSensor(Entity):
     """Sensor for state of charge (percentage)."""
@@ -301,6 +318,12 @@ class CarSoCSensor(Entity):
         car = self._get_car()
         ev = car.get("ev_info", {}) or {}
         return ev.get("soc") or ev.get("soc_display") or car.get("state_of_charge") or car.get("battery_level")
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        car = self._get_car()
+        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
+
 
 
 class CarChargeCableSensor(Entity):
@@ -345,6 +368,12 @@ class CarChargeCableSensor(Entity):
         if plugged is None:
             plugged = car.get("plugged_in")
         return "plugged" if plugged else "unplugged"
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        car = self._get_car()
+        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
+
 
 
 class CarStatusSensor(Entity):

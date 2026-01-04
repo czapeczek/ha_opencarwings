@@ -33,3 +33,10 @@ async def test_sensor_creates_car_entities():
     unique_ids = [e.unique_id for e in car_entities]
     assert "ha_opencarwings_car_VIN1" in unique_ids
     assert "ha_opencarwings_car_VIN2" in unique_ids
+
+    # ensure per-car sensors (battery, soc, range, plugged) are associated with the device
+    expected_ids = {
+        'ha_opencarwings_battery_VIN1', 'ha_opencarwings_soc_VIN1', 'ha_opencarwings_range_acon_VIN1', 'ha_opencarwings_range_acoff_VIN1', 'ha_opencarwings_plugged_in_VIN1',
+        'ha_opencarwings_battery_VIN2', 'ha_opencarwings_soc_VIN2', 'ha_opencarwings_range_acon_VIN2', 'ha_opencarwings_range_acoff_VIN2', 'ha_opencarwings_plugged_in_VIN2',
+    }
+    assert expected_ids.issubset(set(unique_ids))
