@@ -1,5 +1,44 @@
-async def async_setup_entry(hass, entry):
+from __future__ import annotations
+
+import logging
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+
+from .api import OpenCarWingsAPI, AuthenticationError
+
+DOMAIN = "ha_opencarwings"
+
+_LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up the OpenCARWINGS integration from a config entry."""
+    hass.data.setdefault(DOMAIN, {})
+
+    client = OpenCarWingsAPI(hass)
+    client.set_tokens(entry.data.get("access_token"), entry.data.get("refresh_token"))
+
+    hass.data[DOMAIN][entry.entry_id] = client
+
+    # Quick validation - try to call an endpoint to ensure the tokens work.
+    try:
+        resp = await client.async_request("GET", "/api/car/")
+        if resp.status == 401:
+            _LOGGER.warning("Tokens invalid or expired; attempting refresh")
+            try:
+                await client.async_refresh_token()
+            except AuthenticationError:
+                _LOGGER.warning("Refresh failed; requesting reauthentication")
+                hass.config_entries.async_start_reauth(entry.entry_id)
+                return False
+    except Exception:  # pragma: no cover - network or unexpected
+        _LOGGER.exception("Error while validating OpenCARWINGS tokens during setup")
+        return False
+
+    _LOGGER.info("OpenCARWINGS setup complete for %s", entry.title)
     return True
 
-async def async_unload_entry(hass, entry):
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     return True
