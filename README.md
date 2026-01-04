@@ -9,7 +9,7 @@ Nice, lightweight Home Assistant integration that connects to the OpenCARWINGS A
 ## Support the project ☕
 
 This is my first integration for HA. If you find it useful I'd really appreciate if you buy me a coffe:
-[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/gbraad)
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/czapeczek)
 
 
 ---
