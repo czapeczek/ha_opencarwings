@@ -7,6 +7,7 @@ from homeassistant.core import HomeAssistant
 from .api import OpenCarWingsAPI, AuthenticationError
 
 DOMAIN = "ha_opencarwings"
+PLATFORMS = ["sensor"]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,10 +44,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.exception("Error while validating OpenCARWINGS tokens during setup")
         return False
 
+    # Forward setup to platforms
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
     _LOGGER.info("OpenCARWINGS setup complete for %s", entry.title)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # Unload platforms
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+    # Remove stored data
     hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-    return True
+    return unload_ok

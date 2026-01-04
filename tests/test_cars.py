@@ -47,7 +47,14 @@ async def test_get_cars_api(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_setup_stores_cars(monkeypatch):
-    hass = type("H", (), {"data": {}, "config_entries": type("C", (), {"async_start_reauth": lambda x: None})()})()
+    async def _forward(self, entry, platforms):
+        return None
+
+    async def _unload(self, entry, platforms):
+        return True
+
+    config_entries = type("C", (), {"async_start_reauth": lambda x: None, "async_forward_entry_setups": _forward, "async_unload_platforms": _unload})()
+    hass = type("H", (), {"data": {}, "config_entries": config_entries})()
 
     # Monkeypatch OpenCarWingsAPI in the module to return our MockClient
     monkeypatch.setattr("custom_components.ha_opencarwings.OpenCarWingsAPI", lambda hass: MockClient(hass))
