@@ -71,10 +71,6 @@ async def test_refresh_service_for_entry(monkeypatch):
     await hass.services.async_call("ha_opencarwings", "refresh", {"entry_id": "e1"})
 
     assert getattr(real_coord, "called", False) is True
-    # call the service targeting entry e1
-    await hass.services.async_call("ha_opencarwings", "refresh", {"entry_id": "e1"})
-
-    assert coord.called is True
 
 
 @pytest.mark.asyncio
@@ -106,12 +102,22 @@ async def test_refresh_service_refreshes_all(monkeypatch):
         def set_tokens(self, access, refresh):
             return
 
+    class FakeCoordinatorClass:
+        def __init__(self, hass, logger, name, update_method, update_interval=None):
+            self.called = False
+            self.update_method = update_method
+
+        async def async_request_refresh(self):
+            self.called = True
+
     monkeypatch.setattr(init_mod, "OpenCarWingsAPI", FakeAPI)
+    monkeypatch.setattr(init_mod, "DataUpdateCoordinator", FakeCoordinatorClass)
 
     entry = type("E", (), {"entry_id": "e1", "title": "e1", "data": {}})()
     await init_mod.async_setup_entry(hass, entry)
 
     await hass.services.async_call("ha_opencarwings", "refresh", {})
 
-    assert c1.called is True
-    assert c2.called is True
+    # the installed coordinators were created by setup; ensure both were called
+    assert hass.data["ha_opencarwings"]["e1"]["coordinator"].called is True
+    assert hass.data["ha_opencarwings"]["e2"]["coordinator"].called is True

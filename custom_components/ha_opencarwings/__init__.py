@@ -106,6 +106,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             else:
                 # refresh all coordinators
                 for d in hass.data.get(DOMAIN, {}).values():
+                    # skip non-dict sentinel values stored in hass.data (like flags)
+                    if not isinstance(d, dict):
+                        continue
                     coord = d.get("coordinator")
                     if coord:
                         await coord.async_request_refresh()
