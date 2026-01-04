@@ -1,0 +1,1 @@
+This will be an OpenCARWINGS integration for HomeAssisstant.
