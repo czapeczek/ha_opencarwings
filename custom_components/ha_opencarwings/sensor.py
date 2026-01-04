@@ -31,6 +31,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entities.append(CarChargeCableSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
         entities.append(CarStatusSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
 
+    # Add a global "Last Updated" sensor (diagnostic) that shows the most recent timestamp observed for any car
+    entities.append(LastUpdatedSensor(entry.entry_id, cars=cars, coordinator=coordinator))
+
     async_add_entities(entities)
 
 
@@ -431,4 +434,76 @@ class CarStatusSensor(Entity):
     def extra_state_attributes(self) -> dict[str, Any]:
         car = self._get_car()
         return {"vin": self._vin, "battery_raw": car.get("battery")}
+
+
+class LastUpdatedSensor(Entity):
+    """A simple diagnostic sensor providing the most recent timestamp observed in car data."""
+
+    # Try to set EntityCategory if available, otherwise fall back to a string constant so tests don't break
+    try:
+        from homeassistant.helpers.entity import EntityCategory as _EC
+        _DIAGNOSTIC = _EC.DIAGNOSTIC
+    except Exception:
+        _DIAGNOSTIC = "diagnostic"
+
+    def __init__(self, entry_id: str, cars: list[dict] | None = None, coordinator=None) -> None:
+        self._entry_id = entry_id
+        self._coordinator = coordinator
+        self._cars = cars or []
+
+    @property
+    def name(self) -> str:
+        return "OpenCARWINGS Last Updated"
+
+    @property
+    def unique_id(self) -> str:
+        return f"ha_opencarwings_last_updated_{self._entry_id}"
+
+    @property
+    def entity_category(self):
+        # Mark as diagnostic so HA (and recorder) can treat it as non-essential metadata
+        return self._DIAGNOSTIC
+
+    def _parse_ts(self, value: str):
+        from datetime import datetime, timezone
+        if not value:
+            return None
+        try:
+            # support ISO8601 like `2026-01-04T12:00:00Z`
+            if value.endswith("Z"):
+                return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            return datetime.fromisoformat(value)
+        except Exception:
+            return None
+
+    @property
+    def state(self) -> str:
+        # Find the latest timestamp among ev_info.last_updated and location.last_updated across cars
+        latest = None
+        for car in (self._coordinator.data if self._coordinator and self._coordinator.data is not None else self._cars):
+            ev = car.get("ev_info") or {}
+            loc = car.get("location") or {}
+            for key in (ev.get("last_updated"), loc.get("last_updated")):
+                ts = self._parse_ts(key) if isinstance(key, str) else None
+                if ts and (latest is None or ts > latest):
+                    latest = ts
+        if latest:
+            # prefer Z for UTC
+            ts = latest.isoformat()
+            if ts.endswith("+00:00"):
+                ts = ts.replace("+00:00", "Z")
+            return ts
+        return "unknown"
+
+    async def async_added_to_hass(self) -> None:
+        if self._coordinator:
+            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
+            self.async_on_remove(unsub)
+
+    def _handle_coordinator_update(self) -> None:
+        self.async_write_ha_state()
+
+    async def async_update(self) -> None:  # pragma: no cover - optional polling
+        # Data is managed by DataUpdateCoordinator
+        pass
 

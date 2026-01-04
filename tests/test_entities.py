@@ -17,8 +17,8 @@ async def test_battery_and_location_and_switch_creation(monkeypatch):
     await sensor_mod.async_setup_entry(hass, entry, add)
 
     # Expect CarListSensor + CarSensor + Battery plus EV sensors (location moved to device_tracker)
-    # Car sensors: list + (car + battery + 5 sensors) = 8
-    assert len(added) == 8
+    # Car sensors + Last Updated: list + (car + battery + 5 sensors) + 1 = 9
+    assert len(added) == 9
 
     battery = next(x for x in added if x.unique_id == "ha_opencarwings_battery_VIN1")
     assert battery.state == 80
