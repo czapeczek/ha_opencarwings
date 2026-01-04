@@ -20,8 +20,8 @@ async def test_tracker_name_uses_nickname_and_device_name():
     assert t.unique_id == "ha_opencarwings_tracker_VIN1"
     assert t.name == "MyCar Tracker"
     assert t.device_info["name"] == "MyCar"
-    # tracker device should have its own identifier (not the car VIN identifier)
-    assert list(t.device_info["identifiers"])[0][1] == "tracker_VIN1"
+    # tracker should be attached to the car device (use VIN identifier)
+    assert list(t.device_info["identifiers"])[0][1] == "VIN1"
 
 
 @pytest.mark.asyncio
@@ -38,7 +38,7 @@ async def test_two_car_trackers_have_unique_devices():
 
     assert len(trackers) == 2
     ids = {list(t.device_info["identifiers"])[0][1] for t in trackers}
-    assert ids == {"tracker_VIN1", "tracker_VIN2"}
+    assert ids == {"VIN1", "VIN2"}
 
 
 @pytest.mark.asyncio
