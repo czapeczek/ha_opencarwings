@@ -23,8 +23,13 @@ async def async_setup_entry(hass, entry, async_add_entities):
     # Try to force a coordinator refresh before creating entities when possible
     if coordinator and coordinator.data is None:
         try:
-            # request refresh to populate coordinator.data
+            # Request refresh to populate coordinator.data. Different coordinator
+            # implementations used in tests might provide either
+            # `async_config_entry_first_refresh` or `async_request_refresh`.
+            if hasattr(coordinator, "async_config_entry_first_refresh"):
                 await coordinator.async_config_entry_first_refresh()
+            elif hasattr(coordinator, "async_request_refresh"):
+                await coordinator.async_request_refresh()
         except Exception:
             # ignore refresh errors and fall back to cached cars if present
             pass
