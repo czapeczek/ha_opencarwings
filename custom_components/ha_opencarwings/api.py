@@ -8,7 +8,11 @@ import asyncio
 import logging
 from typing import Optional
 
-from aiohttp import ClientResponse
+try:
+    from aiohttp import ClientResponse
+except Exception:  # pragma: no cover - aiohttp not available in tests
+    ClientResponse = object
+
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 _LOGGER = logging.getLogger(__name__)
@@ -27,7 +31,19 @@ class RequestError(Exception):
 class OpenCarWingsAPI:
     def __init__(self, hass, base_url: str = DEFAULT_API_BASE) -> None:
         self.hass = hass
-        self._session = async_get_clientsession(hass)
+        # Import the helper dynamically so tests that monkeypatch
+        # `homeassistant.helpers.aiohttp_client.async_get_clientsession`
+        # will be respected.
+        try:
+            import importlib
+
+            aiohttp_mod = importlib.import_module(
+                "homeassistant.helpers.aiohttp_client"
+            )
+            self._session = aiohttp_mod.async_get_clientsession(hass)
+        except Exception:  # pragma: no cover - fallback for tests
+            self._session = None
+
         self._base = base_url.rstrip("/")
         self._access: Optional[str] = None
         self._refresh: Optional[str] = None

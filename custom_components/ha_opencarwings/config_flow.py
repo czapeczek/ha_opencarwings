@@ -20,7 +20,7 @@ class OpenCARWINGSConfigFlow(config_entries.ConfigFlow, domain="ha_opencarwings"
             username = user_input[CONF_USERNAME]
             password = user_input[CONF_PASSWORD]
 
-            client = OpenCarWingsAPI(self.hass)
+            client = OpenCarWingsAPI(getattr(self, "hass", None))
             try:
                 tokens = await client.async_obtain_token(username, password)
             except AuthenticationError:
