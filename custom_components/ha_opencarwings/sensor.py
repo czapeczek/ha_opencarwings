@@ -22,7 +22,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
     for car in cars:
         entities.append(CarSensor(entry.entry_id, car))
         entities.append(CarBatterySensor(entry.entry_id, car))
-        entities.append(CarLocationSensor(entry.entry_id, car))
 
     async_add_entities(entities)
 
@@ -126,39 +125,3 @@ class CarBatterySensor(Entity):
     def extra_state_attributes(self) -> dict[str, Any]:
         return {"vin": self._vin, "battery_raw": self._car.get("battery")}
 
-
-class CarLocationSensor(Entity):
-    """Sensor exposing last known location of the car as a string."""
-
-    def __init__(self, entry_id: str, car: dict) -> None:
-        self._entry_id = entry_id
-        self._car = car
-        self._vin = car.get("vin")
-
-    @property
-    def name(self) -> str:
-        return f"{self._car.get('model_name') or 'Car'} Location"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_location_{self._vin}"
-
-    @property
-    def state(self) -> str | None:
-        # Use location fields if present (lat/lon or a formatted address)
-        loc = self._car.get("last_location") or self._car.get("location")
-        if isinstance(loc, dict):
-            lat = loc.get("lat") or loc.get("latitude")
-            lon = loc.get("lon") or loc.get("longitude")
-            if lat and lon:
-                return f"{lat},{lon}"
-            return loc.get("name") or loc.get("address")
-        return None
-
-    @property
-    def device_info(self) -> dict:
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": self._car.get("model_name")}
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        return {"vin": self._vin, "location_raw": self._car.get("last_location") or self._car.get("location")}
