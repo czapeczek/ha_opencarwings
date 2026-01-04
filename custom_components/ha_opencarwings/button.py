@@ -18,6 +18,12 @@ async def async_setup_entry(hass, entry, async_add_entities):
     # Create a single per-entry refresh button
     entities = [OpenCarWingsRefreshButton(entry.entry_id, coordinator=coordinator)]
 
+    # Create per-car API refresh buttons for each car
+    cars = data.get("cars", [])
+    for car in cars:
+        if car.get("vin"):
+            entities.append(CarRefreshButton(entry.entry_id, car))
+
     # Tests set hass on the entity for direct method calls
     for ent in entities:
         ent.hass = hass
@@ -54,3 +60,53 @@ class OpenCarWingsRefreshButton(ButtonEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {"entry_id": self._entry_id}
+
+
+class CarRefreshButton(ButtonEntity):
+    """Button that sends a 'Refresh data' command for a specific car."""
+
+    def __init__(self, entry_id: str, car: dict) -> None:
+        self._entry_id = entry_id
+        self._car = car
+        self._vin = car.get("vin")
+
+    @property
+    def name(self) -> str:
+        # Friendly label: prefer car nickname, then model name, then VIN
+        label = self._car.get("nickname") or self._car.get("model_name") or self._vin
+        return f"Request data refresh for {label}"
+
+    @property
+    def unique_id(self) -> str:
+        return f"ha_opencarwings_car_refresh_{self._vin}"
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        return {
+            "identifiers": {(DOMAIN, self._vin)},
+            "name": self._car.get("model_name"),
+            "manufacturer": self._car.get("make"),
+            "model": self._car.get("model_name"),
+        }
+
+    async def async_press(self) -> None:
+        """Press the button to send a 'Refresh data' command to the API for this car."""
+        client = hass_client(self.hass, self._entry_id)
+        try:
+            await client.async_request(
+                "POST",
+                f"/api/command/{self._vin}/",
+                json={"vin": self._vin, "command_type": 1},
+            )
+        except Exception:  # pragma: no cover - network
+            _LOGGER.exception("Failed to request car refresh for %s", self._vin)
+            raise
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"entry_id": self._entry_id, "vin": self._vin}
+
+
+def hass_client(hass, entry_id: str):
+    """Helper to get the API client stored in hass.data."""
+    return hass.data[DOMAIN][entry_id]["client"]
