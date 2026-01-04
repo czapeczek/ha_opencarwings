@@ -164,5 +164,9 @@ class CarTracker(TrackerEntity):
     @property
     def device_info(self) -> dict[str, Any]:
         car = self._get_car()
-        # Use nickname for device name when available; fall back to model_name
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("nickname") or car.get("model_name")}
+        # Create a separate device for the tracker (not the car device).
+        # Use a distinct identifier so the tracker is not attached to the car device.
+        return {
+            "identifiers": {(DOMAIN, f"tracker_{self._vin}" )},
+            "name": car.get("nickname") or car.get("model_name"),
+        }

@@ -33,10 +33,10 @@ Per car the integration currently exposes:
   - High-level status (charging / running / ac_on / idle)
   - **Per-car "Last Updated"** (diagnostic): reports the ISO 8601 timestamp of the last direct reading from the car. The sensor is created per VIN, shows the most recent timestamp found in `ev_info.last_updated`, `location.last_updated`, or `last_connection`, and has the unique id pattern `ha_opencarwings_last_updated_<VIN>`.
   - A top-level `OpenCARWINGS Cars` sensor listing your cars and VINs
-- Device tracker: car GPS (uses `last_location` / `location` returned by the API). The tracker/visible name prefers the car's `nickname` if present, otherwise it falls back to `model_name`. The visible name intentionally excludes the VIN and the "Car" prefix (for example, "MyCar Tracker"). The tracker entity keeps a stable `unique_id` of the form `ha_opencarwings_tracker_<VIN>`.
+- Device tracker: car GPS (uses `last_location` / `location` returned by the API). The tracker entity appears as a **separate device** (not attached to the car device) and uses a device identifier of the form `tracker_<VIN>`; the tracker entity itself keeps a stable `unique_id` of the form `ha_opencarwings_tracker_<VIN>`. The visible name prefers the car's `nickname` if present, otherwise it falls back to `model_name` (for example, "MyCar Tracker").
 - Switch: A/C control (on/off) — sends commands to the car via the OpenCARWINGS command endpoint
 - Button: **Manual refresh** — a per-integration button is available to force an immediate refresh from the OpenCARWINGS service (unique id: `ha_opencarwings_refresh_<entry_id>`).
-- Button: **Per-car "Request refresh"** — each car also has a per-vehicle button that sends a "Refresh data" command to OpenCARWINGS (unique id: `ha_opencarwings_car_refresh_<VIN>`).
+- Button: **Per-car "Request refresh"** — each car has a per-vehicle button labeled like `Request data refresh for <nickname|model>` (for example, "Request data refresh for MyCar"). Pressing it sends a "Refresh data" command to OpenCARWINGS (unique id: `ha_opencarwings_car_refresh_<VIN>`).
 
 ---
 
@@ -61,7 +61,9 @@ A few helpful naming/ID patterns to identify entities created by the integration
 
 - Device tracker name: uses `nickname` when available, otherwise `model_name`. Visible name example: `MyCar Tracker`.
 - Tracker unique_id: `ha_opencarwings_tracker_<VIN>`
+- Tracker device identifier: `tracker_<VIN>` (the tracker appears as a separate device; the entity unique id above still applies)
 - Per-car "Last Updated" sensor: `ha_opencarwings_last_updated_<VIN>`
+- Car refresh button label: `Request data refresh for <nickname|model>` (visible name) — unique id: `ha_opencarwings_car_refresh_<VIN>`
 - Battery sensor: `ha_opencarwings_battery_<VIN>`
 - A/C switch: `ha_opencarwings_ac_<VIN>`
 
@@ -89,7 +91,7 @@ Choose one of the options below:
 Setup is done via the UI. You will need:
 
 - **Username** and **Password** for your OpenCARWINGS account
-- **Scan interval** (polling frequency, default: 15 minutes)
+- **Scan interval** (polling frequency, default: 15 minutes). The setup and options flows present a friendly select with labeled choices (for example: "1 minute", "15 minutes (default)", "1 hour", "1 day").
 - **API base URL** (optional — defaults to the known OpenCARWINGS endpoint)
 
 The integration obtains JWT tokens (access & refresh) during setup and refreshes tokens automatically.
