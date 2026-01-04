@@ -1,0 +1,6 @@
+{
+  "name": "HA OpenCARWINGS Integration",
+  "content_in_root": false,
+  "render_readme": true,
+  "domains": ["ha_opencarwings"]
+}
