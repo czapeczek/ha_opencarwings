@@ -1,0 +1,9 @@
+# Force LF for all text files
+* text=auto eol=lf
+
+# Explicit for common files
+*.py     text eol=lf
+*.md     text eol=lf
+*.yaml   text eol=lf
+*.yml    text eol=lf
+*.json   text eol=lf
