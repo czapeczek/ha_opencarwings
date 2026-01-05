@@ -76,7 +76,7 @@ These entities are created per-VIN and appear as devices in the Integrations UI.
 ## Installation 🔧
 
 Choose one of the options below:
-
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.][hacs-repo-badge]][hacs-install]
 1. HACS (recommended)
    - In HACS: Integrations → three dots → Custom repositories → Add this repository as category "Integration" → Install → Restart Home Assistant
 2. Manual
@@ -133,3 +133,4 @@ A big thank you to the OpenCARWINGS project for providing the reverse-engineered
 
 [forum-shield]: https://img.shields.io/badge/community-forum-blue.svg?style=for-the-badge
 [forum]: https://community.home-assistant.io/
+[hacs-install]: https://my.home-assistant.io/redirect/hacs_repository/?owner=czapeczek&repository=ha_opencarwings&category=Integration
