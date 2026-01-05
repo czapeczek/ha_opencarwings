@@ -103,6 +103,16 @@ class CarRefreshButton(ButtonEntity):
             _LOGGER.exception("Failed to request car refresh for %s", self._vin)
             raise
 
+        # After a successful API request, trigger the coordinator to refresh so
+        # the integration's coordinator.last_update_time is updated and the
+        # per-car Last Requested diagnostic sensor will reflect the request time.
+        try:
+            coordinator = self.hass.data[DOMAIN][self._entry_id].get("coordinator")
+            if coordinator:
+                await coordinator.async_request_refresh()
+        except Exception:  # pragma: no cover - coordinator failure
+            _LOGGER.exception("Failed to trigger coordinator refresh after requesting car refresh for %s", self._vin)
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {"entry_id": self._entry_id, "vin": self._vin}
@@ -152,6 +162,16 @@ class CarChargeStartButton(ButtonEntity):
         except Exception:  # pragma: no cover - network
             _LOGGER.exception("Failed to request charge start for %s", self._vin)
             raise
+
+        # Trigger a coordinator refresh after sending the charge start command so
+        # the diagnostic Last Requested sensor is updated to the time the
+        # integration asked the API.
+        try:
+            coordinator = self.hass.data[DOMAIN][self._entry_id].get("coordinator")
+            if coordinator:
+                await coordinator.async_request_refresh()
+        except Exception:  # pragma: no cover - coordinator failure
+            _LOGGER.exception("Failed to trigger coordinator refresh after requesting charge start for %s", self._vin)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

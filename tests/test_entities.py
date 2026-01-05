@@ -16,12 +16,9 @@ async def test_battery_and_location_and_switch_creation(monkeypatch):
     # set up sensors
     await sensor_mod.async_setup_entry(hass, entry, add)
 
-    # Expect CarListSensor + CarSensor + Battery plus EV sensors (location moved to device_tracker)
-    # Car sensors + Last Updated: list + (car + battery + 5 sensors) + 1 = 9
+    # Expect CarListSensor + CarSensor plus EV sensors (battery sensor removed)
+    # Car sensors + Last Updated + Last Requested: list + (car + 6 sensors) + 1 = 9
     assert len(added) == 9
-
-    battery = next(x for x in added if x.unique_id == "ha_opencarwings_battery_VIN1")
-    assert battery.state == 80
 
     # new EV sensors
     soc = next(x for x in added if x.unique_id == "ha_opencarwings_soc_VIN1")
@@ -64,5 +61,4 @@ async def test_battery_and_location_and_switch_creation(monkeypatch):
     assert t.unique_id == "ha_opencarwings_tracker_VIN1"
     assert t.latitude == 50.0
     assert t.longitude == 20.0
-    # VIN should be visible in attributes
-    assert t.extra_state_attributes.get("vin") == "VIN1"
+

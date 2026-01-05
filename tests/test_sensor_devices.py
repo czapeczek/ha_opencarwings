@@ -16,8 +16,8 @@ async def test_sensor_creates_car_entities():
     entry = type("E", (), {"entry_id": "e1"})()
     await sensor_mod.async_setup_entry(hass, entry, add)
 
-    # We expect one CarListSensor plus two CarSensor entities, battery and additional EV sensors per car (location moved to device_tracker)
-    # For two cars plus per-car Last Updated sensors: 1 list + (car + battery + 5 sensors) * 2 + 2 = 17
+    # We expect one CarListSensor plus two CarSensor entities and additional EV sensors per car (battery sensor removed)
+    # For two cars plus per-car Last Updated and Last Requested: 1 list + (car + 7 sensors) * 2 = 17
     assert len(added) == 17
 
     # verify some unique ids for the new sensors (one example per car)
@@ -34,9 +34,9 @@ async def test_sensor_creates_car_entities():
     assert "ha_opencarwings_car_VIN1" in unique_ids
     assert "ha_opencarwings_car_VIN2" in unique_ids
 
-    # ensure per-car sensors (battery, soc, range, plugged) are associated with the device
+    # ensure per-car sensors (soc, range, plugged, last_updated, last_requested) are associated with the device
     expected_ids = {
-        'ha_opencarwings_battery_VIN1', 'ha_opencarwings_soc_VIN1', 'ha_opencarwings_range_acon_VIN1', 'ha_opencarwings_range_acoff_VIN1', 'ha_opencarwings_plugged_in_VIN1', 'ha_opencarwings_last_updated_VIN1',
-        'ha_opencarwings_battery_VIN2', 'ha_opencarwings_soc_VIN2', 'ha_opencarwings_range_acon_VIN2', 'ha_opencarwings_range_acoff_VIN2', 'ha_opencarwings_plugged_in_VIN2', 'ha_opencarwings_last_updated_VIN2',
+        'ha_opencarwings_soc_VIN1', 'ha_opencarwings_range_acon_VIN1', 'ha_opencarwings_range_acoff_VIN1', 'ha_opencarwings_plugged_in_VIN1', 'ha_opencarwings_last_updated_VIN1', 'ha_opencarwings_last_requested_VIN1',
+        'ha_opencarwings_soc_VIN2', 'ha_opencarwings_range_acon_VIN2', 'ha_opencarwings_range_acoff_VIN2', 'ha_opencarwings_plugged_in_VIN2', 'ha_opencarwings_last_updated_VIN2', 'ha_opencarwings_last_requested_VIN2',
     }
     assert expected_ids.issubset(set(unique_ids))

@@ -113,7 +113,7 @@ class CarTracker(TrackerEntity):
             if raw_loc is not None:
                 raw_src = "ev_info.last_location"
 
-        return {"vin": self._vin, **self._car, "last_location_raw": raw_loc, "last_location_source": raw_src}
+        return {**self._car, "last_location_raw": raw_loc, "last_location_source": raw_src}
 
     @property
     def device_info(self) -> dict[str, Any]:

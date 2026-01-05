@@ -27,11 +27,11 @@ This is my first integration for HA. If you find it useful I'd really appreciate
 Per car the integration currently exposes:
 
 - Sensors
-  - Battery level / State of Charge
   - Range (A/C on / A/C off)
   - Charge cable plugged in (plugged / unplugged)
   - High-level status (charging / running / ac_on / idle)
   - **Per-car "Last Updated"** (diagnostic): reports the ISO 8601 timestamp of the last direct reading from the car. The sensor is created per VIN, shows the most recent timestamp found in `ev_info.last_updated`, `location.last_updated`, or `last_connection`, and has the unique id pattern `ha_opencarwings_last_updated_<VIN>`.
+  - **Per-car "Last Requested"** (diagnostic): reports the last time the integration requested data from the API (coordinator's last update time). The sensor is created per VIN and has the unique id pattern `ha_opencarwings_last_requested_<VIN>`.
   - A top-level `OpenCARWINGS Cars` sensor listing your cars and VINs
 - Device tracker: car GPS (uses `last_location` / `location` returned by the API). The tracker entity is attached to the same car device as the per-car buttons and shares the car VIN as the device identifier; the tracker entity itself keeps a stable `unique_id` of the form `ha_opencarwings_tracker_<VIN>`. The visible name prefers the car's `nickname` if present, otherwise it falls back to `model_name` (for example, "MyCar Tracker").
 - Switch: A/C control (on/off) — sends commands to the car via the OpenCARWINGS command endpoint
@@ -49,6 +49,7 @@ recorder:
   exclude:
     entity_globs:
       - "sensor.ha_opencarwings_last_updated_*"
+      - "sensor.ha_opencarwings_last_requested_*"
 ```
 
 This will prevent per-car `Last Updated` sensors from being stored in your database and showing up in history charts.
@@ -64,7 +65,6 @@ A few helpful naming/ID patterns to identify entities created by the integration
 - Tracker device identifier: `tracker_<VIN>` (the tracker appears as a separate device; the entity unique id above still applies)
 - Per-car "Last Updated" sensor: `ha_opencarwings_last_updated_<VIN>`
 - Car refresh button label: `Request data refresh for <nickname|model>` (visible name) — unique id: `ha_opencarwings_car_refresh_<VIN>`
-- Battery sensor: `ha_opencarwings_battery_<VIN>`
 - A/C switch: `ha_opencarwings_ac_<VIN>`
 
 These stable IDs are useful when excluding entities from the recorder or when writing automations targeting specific cars.

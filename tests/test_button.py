@@ -160,6 +160,56 @@ async def test_car_refresh_button_calls_api(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_car_refresh_button_triggers_coordinator_refresh(monkeypatch):
+    class FakeCoordinator:
+        def __init__(self):
+            self.called = False
+
+        async def async_request_refresh(self):
+            self.called = True
+
+    calls = []
+
+    class MockClient:
+        def __init__(self, hass):
+            self.hass = hass
+
+        async def async_request(self, method, path, **kwargs):
+            calls.append((method, path, kwargs))
+            class R:  # pragma: no cover - simple stub response
+                pass
+            return R()
+
+    coord = FakeCoordinator()
+    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"client": MockClient(None), "coordinator": coord, "cars": [{"vin": "VIN1", "model_name": "M1"}]}}}})()
+
+    from custom_components.ha_opencarwings import button as button_mod
+    entry = type("E", (), {"entry_id": "e1"})()
+
+    added = []
+    def add(entities):
+        added.extend(entities)
+
+    await button_mod.async_setup_entry(hass, entry, add)
+
+    # find car button
+    car_btn = None
+    for ent in added:
+        if getattr(ent, "unique_id", "").startswith("ha_opencarwings_car_refresh_"):
+            car_btn = ent
+            break
+
+    assert car_btn is not None
+
+    await car_btn.async_press()
+
+    assert calls[0][0] == "POST"
+    assert "/api/command/VIN1/" in calls[0][1]
+    assert calls[0][2]["json"]["command_type"] == 1
+    assert coord.called is True
+
+
+@pytest.mark.asyncio
 async def test_car_chargestart_button_created_and_has_unique_id():
     hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"coordinator": None, "cars": [{"vin": "VIN1", "model_name": "M1"}]}}}})()
 
@@ -242,3 +292,53 @@ async def test_car_chargestart_button_calls_api(monkeypatch):
     assert calls[0][0] == "POST"
     assert "/api/command/VIN1/" in calls[0][1]
     assert calls[0][2]["json"]["command_type"] == 2
+
+
+@pytest.mark.asyncio
+async def test_car_chargestart_button_triggers_coordinator_refresh(monkeypatch):
+    class FakeCoordinator:
+        def __init__(self):
+            self.called = False
+
+        async def async_request_refresh(self):
+            self.called = True
+
+    calls = []
+
+    class MockClient:
+        def __init__(self, hass):
+            self.hass = hass
+
+        async def async_request(self, method, path, **kwargs):
+            calls.append((method, path, kwargs))
+            class R:  # pragma: no cover - simple stub response
+                pass
+            return R()
+
+    coord = FakeCoordinator()
+    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"client": MockClient(None), "coordinator": coord, "cars": [{"vin": "VIN1", "model_name": "M1"}]}}}})()
+
+    from custom_components.ha_opencarwings import button as button_mod
+    entry = type("E", (), {"entry_id": "e1"})()
+
+    added = []
+    def add(entities):
+        added.extend(entities)
+
+    await button_mod.async_setup_entry(hass, entry, add)
+
+    # find charge start button
+    charge_btn = None
+    for ent in added:
+        if getattr(ent, "unique_id", "").startswith("ha_opencarwings_car_chargestart_"):
+            charge_btn = ent
+            break
+
+    assert charge_btn is not None
+
+    await charge_btn.async_press()
+
+    assert calls[0][0] == "POST"
+    assert "/api/command/VIN1/" in calls[0][1]
+    assert calls[0][2]["json"]["command_type"] == 2
+    assert coord.called is True

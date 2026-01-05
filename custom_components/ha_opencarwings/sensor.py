@@ -5,6 +5,12 @@ from typing import Any
 import logging
 
 from homeassistant.helpers.entity import Entity
+try:
+    # EntityCategory is available in recent Home Assistant versions
+    from homeassistant.helpers.entity import EntityCategory
+except Exception:  # pragma: no cover - tests running without hass stubs
+    class EntityCategory:  # type: ignore
+        DIAGNOSTIC = "diagnostic"
 from homeassistant.const import ATTR_ATTRIBUTION
 
 from . import DOMAIN
@@ -24,7 +30,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
     for car in cars:
         vin = car.get("vin")
         entities.append(CarSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarBatterySensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
         entities.append(CarRangeACOnSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
         entities.append(CarRangeACOffSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
         entities.append(CarSoCSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
@@ -32,6 +37,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entities.append(CarStatusSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
         # Per-car Last Updated sensor that reads timestamps from the car's data
         entities.append(CarLastUpdatedSensor(entry.entry_id, car=car, coordinator=coordinator, vin=vin))
+        # Per-car Last Requested sensor that shows the last coordinator request time
+        entities.append(CarLastRequestedSensor(entry.entry_id, car=car, coordinator=coordinator, vin=vin))
 
     async_add_entities(entities)
 
@@ -133,58 +140,7 @@ class CarSensor(Entity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         car = self._get_car()
-        return {"vin": self._vin, **car}
-
-
-class CarBatterySensor(Entity):
-    """Sensor exposing battery level for the car (if available)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Battery"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_battery_{self._vin}"
-
-    @property
-    def state(self) -> int | None:
-        car = self._get_car()
-        # Prefer battery_level or state_of_charge field names if present
-        return car.get("battery_level") or car.get("state_of_charge")
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"vin": self._vin, **car}
+        return {**car}
 
 
 class CarRangeACOnSensor(Entity):
@@ -432,11 +388,11 @@ class CarStatusSensor(Entity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         car = self._get_car()
-        return {"vin": self._vin, "battery_raw": car.get("battery")}
+        return {"battery_raw": car.get("battery"), **car}
 
 
 class CarLastUpdatedSensor(Entity):
-    """Per-car diagnostic sensor providing the most recent timestamp observed in that car's data."""
+    """Per-car diagnostic sensor reporting the timestamp provided by the car (ev_info.last_updated or location)."""
 
     # Try to set EntityCategory if available, otherwise fall back to a string constant so tests don't break
     try:
@@ -492,20 +448,81 @@ class CarLastUpdatedSensor(Entity):
 
     @property
     def state(self) -> str:
-        # Look for per-car timestamps: prefer ev_info.last_updated then location.last_updated, fall back to generic last_connection
+        # Prefer the explicit EV-provided last_updated, then location.last_updated, then last_connection
         car = self._get_car()
-        latest = None
         ev = car.get("ev_info") or {}
         loc = car.get("location") or {}
-        for key in (ev.get("last_updated"), loc.get("last_updated"), car.get("last_connection")):
-            ts = self._parse_ts(key) if isinstance(key, str) else None
-            if ts and (latest is None or ts > latest):
-                latest = ts
-        if latest:
-            ts = latest.isoformat()
+        ts = ev.get("last_updated") or loc.get("last_updated") or car.get("last_connection")
+        parsed = self._parse_ts(ts) if isinstance(ts, str) else None
+        if parsed:
+            out = parsed.isoformat()
+            if out.endswith("+00:00"):
+                out = out.replace("+00:00", "Z")
+            return out
+        return "unknown"
+
+    async def async_added_to_hass(self) -> None:
+        if self._coordinator:
+            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
+            self.async_on_remove(unsub)
+
+    def _handle_coordinator_update(self) -> None:
+        self.async_write_ha_state()
+
+    async def async_update(self) -> None:  # pragma: no cover - optional polling
+        # Data is managed by DataUpdateCoordinator
+        pass
+
+
+class CarLastRequestedSensor(Entity):
+    """Per-car diagnostic sensor reporting the last time the integration requested data from the API."""
+
+    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
+        self._entry_id = entry_id
+        self._coordinator = coordinator
+        self._car = car or {}
+        self._vin = vin or self._car.get("vin")
+
+    @property
+    def name(self) -> str:
+        car = self._car
+        return f"{car.get('model_name') or 'Car'} Last Requested"
+
+    @property
+    def unique_id(self) -> str:
+        return f"ha_opencarwings_last_requested_{self._vin}"
+
+    @property
+    def entity_category(self):
+        try:
+            from homeassistant.helpers.entity import EntityCategory as _EC
+            return _EC.DIAGNOSTIC
+        except Exception:
+            return "diagnostic"
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        car = self._car
+        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
+
+    def _format_dt(self, dt):
+        if not dt:
+            return None
+        try:
+            ts = dt.isoformat()
             if ts.endswith("+00:00"):
                 ts = ts.replace("+00:00", "Z")
             return ts
+        except Exception:
+            return None
+
+    @property
+    def state(self) -> str:
+        # coordinator.last_update_time is a datetime when the last request occurred
+        coord = self._coordinator
+        if coord and getattr(coord, "last_update_time", None):
+            formatted = self._format_dt(coord.last_update_time)
+            return formatted or "unknown"
         return "unknown"
 
     async def async_added_to_hass(self) -> None:
