@@ -39,6 +39,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entities.append(CarLastUpdatedSensor(entry.entry_id, car=car, coordinator=coordinator, vin=vin))
         # Per-car Last Requested sensor that shows the last coordinator request time
         entities.append(CarLastRequestedSensor(entry.entry_id, car=car, coordinator=coordinator, vin=vin))
+        # Per-car VIN diagnostic sensor
+        entities.append(CarVINSensor(entry.entry_id, car=car, coordinator=coordinator, vin=vin))
 
     async_add_entities(entities)
 
@@ -73,6 +75,62 @@ class CarListSensor(Entity):
             "cars": cars,
             "car_vins": [c.get("vin") for c in cars if c.get("vin")],
         }
+
+    async def async_added_to_hass(self) -> None:
+        if self._coordinator:
+            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
+            self.async_on_remove(unsub)
+
+    def _handle_coordinator_update(self) -> None:
+        self.async_write_ha_state()
+
+    async def async_update(self) -> None:  # pragma: no cover - optional polling
+        # Data is managed by DataUpdateCoordinator
+        pass
+
+
+class CarVINSensor(Entity):
+    """Per-car diagnostic sensor reporting the Vehicle Identification Number (VIN)."""
+
+    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
+        self._entry_id = entry_id
+        self._coordinator = coordinator
+        self._car = car or {}
+        self._vin = vin or self._car.get("vin")
+
+    def _get_car(self) -> dict:
+        if self._coordinator and self._coordinator.data is not None:
+            for c in self._coordinator.data:
+                if c.get("vin") == self._vin:
+                    return c
+            return self._car
+        return self._car
+
+    @property
+    def name(self) -> str:
+        car = self._get_car()
+        return f"{car.get('model_name') or 'Car'} VIN"
+
+    @property
+    def unique_id(self) -> str:
+        return f"ha_opencarwings_vin_{self._vin}"
+
+    @property
+    def entity_category(self):
+        try:
+            from homeassistant.helpers.entity import EntityCategory as _EC
+            return _EC.DIAGNOSTIC
+        except Exception:
+            return "diagnostic"
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        car = self._get_car()
+        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
+
+    @property
+    def state(self) -> str:
+        return self._vin or "unknown"
 
     async def async_added_to_hass(self) -> None:
         if self._coordinator:
@@ -536,4 +594,3 @@ class CarLastRequestedSensor(Entity):
     async def async_update(self) -> None:  # pragma: no cover - optional polling
         # Data is managed by DataUpdateCoordinator
         pass
-
