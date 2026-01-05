@@ -16,9 +16,9 @@ async def test_sensor_creates_car_entities():
     entry = type("E", (), {"entry_id": "e1"})()
     await sensor_mod.async_setup_entry(hass, entry, add)
 
-    # We expect one CarListSensor plus two CarSensor entities and additional EV sensors per car (battery sensor removed)
-    # For two cars plus per-car Last Updated, Last Requested, and VIN: 1 list + (car + 8 sensors) * 2 = 19
-    assert len(added) == 19
+    # We expect one CarListSensor plus EV sensors per car (CarSensor removed as redundant)
+    # For two cars: 1 list + (range_on, range_off, soc, cable, status, last_updated, last_requested, vin) * 2 = 1 + 8*2 = 17
+    assert len(added) == 17
 
     # verify some unique ids for the new sensors (one example per car)
     unique_ids = [getattr(e, 'unique_id', None) for e in added]
@@ -31,8 +31,6 @@ async def test_sensor_creates_car_entities():
 
     # verify unique ids for car sensors
     unique_ids = [e.unique_id for e in car_entities]
-    assert "ha_opencarwings_car_VIN1" in unique_ids
-    assert "ha_opencarwings_car_VIN2" in unique_ids
 
     # ensure per-car sensors (soc, range, plugged, last_updated, last_requested, vin) are associated with the device
     expected_ids = {

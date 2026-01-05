@@ -16,9 +16,9 @@ async def test_battery_and_location_and_switch_creation(monkeypatch):
     # set up sensors
     await sensor_mod.async_setup_entry(hass, entry, add)
 
-    # Expect CarListSensor + CarSensor plus EV sensors (battery sensor removed)
-    # Car sensors + Last Updated + Last Requested + VIN: list + (car + 7 sensors) + 1 = 10
-    assert len(added) == 10
+    # Expect CarListSensor plus EV sensors (CarSensor removed as redundant)
+    # 1 list + (range_on, range_off, soc, cable, status, last_updated, last_requested, vin) = 1 + 8 = 9
+    assert len(added) == 9
 
     # new EV sensors
     soc = next(x for x in added if x.unique_id == "ha_opencarwings_soc_VIN1")

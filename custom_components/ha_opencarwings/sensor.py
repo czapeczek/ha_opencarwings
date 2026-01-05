@@ -29,7 +29,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
     # Create one entity per car so they appear as devices in the Integrations UI
     for car in cars:
         vin = car.get("vin")
-        entities.append(CarSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
         entities.append(CarRangeACOnSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
         entities.append(CarRangeACOffSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
         entities.append(CarSoCSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
@@ -143,62 +142,6 @@ class CarVINSensor(Entity):
     async def async_update(self) -> None:  # pragma: no cover - optional polling
         # Data is managed by DataUpdateCoordinator
         pass
-
-
-class CarSensor(Entity):
-    """Entity representing a single car (shows up as a device)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return car.get("model_name") or f"Car {self._vin}"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_car_{self._vin}"
-
-    @property
-    def state(self) -> str:
-        car = self._get_car()
-        return car.get("model_name") or self._vin
-
-    @property
-    def device_info(self) -> dict:
-        car = self._get_car()
-        # Provide device registry information so the car shows as a device
-        return {
-            "identifiers": {(DOMAIN, self._vin)},
-            "name": self.name,
-            "manufacturer": car.get("make"),
-            "model": car.get("model_name"),
-        }
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {**car}
 
 
 class CarRangeACOnSensor(Entity):
