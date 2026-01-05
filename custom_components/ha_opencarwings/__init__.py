@@ -41,15 +41,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def _async_update_data():
         """Fetch data from API."""
+        from datetime import datetime, timezone
         try:
             # Prefer dedicated helper if available
             if hasattr(client, "async_get_cars"):
                 cars = await client.async_get_cars()
+                # Track the last successful update time for CarLastRequestedSensor
+                coordinator.last_update_time = datetime.now(timezone.utc)
                 return cars
             # Fallback to raw request-based client (used in tests)
             if hasattr(client, "async_request"):
                 resp = await client.async_request("GET", "/api/car/")
-                return await resp.json()
+                result = await resp.json()
+                # Track the last successful update time for CarLastRequestedSensor
+                coordinator.last_update_time = datetime.now(timezone.utc)
+                return result
             raise RuntimeError("Client has no method to fetch cars")
         except AuthenticationError:
             # Let Home Assistant handle reauth via existing logic

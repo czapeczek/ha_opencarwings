@@ -440,9 +440,14 @@ class CarLastUpdatedSensor(Entity):
         if not value:
             return None
         try:
-            # support ISO8601 like `2026-01-04T12:00:00Z`
+            # support ISO8601 like `2026-01-04T12:00:00Z` or with microseconds `2026-01-05T00:16:10.419903Z`
             if value.endswith("Z"):
-                return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                # Try with microseconds first
+                try:
+                    return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+                except ValueError:
+                    # Fall back to format without microseconds
+                    return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
             return datetime.fromisoformat(value)
         except Exception:
             return None
@@ -484,9 +489,17 @@ class CarLastRequestedSensor(Entity):
         self._car = car or {}
         self._vin = vin or self._car.get("vin")
 
+    def _get_car(self) -> dict:
+        if self._coordinator and self._coordinator.data is not None:
+            for c in self._coordinator.data:
+                if c.get("vin") == self._vin:
+                    return c
+            return self._car
+        return self._car
+
     @property
     def name(self) -> str:
-        car = self._car
+        car = self._get_car()
         return f"{car.get('model_name') or 'Car'} Last Requested"
 
     @property
@@ -503,7 +516,7 @@ class CarLastRequestedSensor(Entity):
 
     @property
     def device_info(self) -> dict[str, Any]:
-        car = self._car
+        car = self._get_car()
         return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
 
     def _format_dt(self, dt):
