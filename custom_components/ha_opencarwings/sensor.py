@@ -1,934 +1,196 @@
 """Sensor platform for OpenCARWINGS listing cars."""
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Callable, Optional
 import logging
 
-from homeassistant.helpers.entity import Entity
+from homeassistant.components.sensor import SensorEntity
+from homeassistant.const import ATTR_ATTRIBUTION
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
 try:
-    # EntityCategory is available in recent Home Assistant versions
     from homeassistant.helpers.entity import EntityCategory
-except Exception:  # pragma: no cover - tests running without hass stubs
+except Exception:  # pragma: no cover
     class EntityCategory:  # type: ignore
         DIAGNOSTIC = "diagnostic"
-from homeassistant.const import ATTR_ATTRIBUTION
 
 from . import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass, entry, async_add_entities):
-    data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
-    coordinator = data.get("coordinator")
-    cars = coordinator.data if coordinator and coordinator.data is not None else data.get("cars", [])
+# -----------------------------
+# Helpers
+# -----------------------------
 
-    # Car list sensor uses coordinator when available
-    entities = [CarListSensor(entry.entry_id, cars=cars, coordinator=coordinator)]
-
-    # Create one entity per car so they appear as devices in the Integrations UI
-    for car in cars:
-        vin = car.get("vin")
-        entities.append(CarRangeACOnSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarRangeACOffSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarSoCSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarSoCDisplaySensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarChargeBarsSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarChargeCableSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarChargingSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarChargeFinishSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarQuickChargingSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarACStatusSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarEcoModeSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarRunningSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarOdometerSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarFullChgTimeSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarLimitChgTimeSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarObc6kwSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        entities.append(CarStatusSensor(entry.entry_id, car, coordinator=coordinator, vin=vin))
-        # Per-car Last Updated sensor that reads timestamps from the car's data
-        entities.append(CarLastUpdatedSensor(entry.entry_id, car=car, coordinator=coordinator, vin=vin))
-        # Per-car Last Requested sensor that shows the last coordinator request time
-        entities.append(CarLastRequestedSensor(entry.entry_id, car=car, coordinator=coordinator, vin=vin))
-        # Per-car VIN diagnostic sensor
-        entities.append(CarVINSensor(entry.entry_id, car=car, coordinator=coordinator, vin=vin))
-
-    async_add_entities(entities)
+def _parse_ts(value: str | None):
+    if not value:
+        return None
+    try:
+        # support ISO8601 like `2026-01-04T12:00:00Z` or with microseconds `...10.419903Z`
+        if value.endswith("Z"):
+            try:
+                return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+            except ValueError:
+                return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        return datetime.fromisoformat(value)
+    except Exception:
+        return None
 
 
-class CarListSensor(Entity):
-    """Sensor that represents the list of cars for the account."""
+def _format_dt(dt: datetime | None) -> str | None:
+    if not dt:
+        return None
+    try:
+        ts = dt.isoformat()
+        if ts.endswith("+00:00"):
+            ts = ts.replace("+00:00", "Z")
+        return ts
+    except Exception:
+        return None
 
-    def __init__(self, entry_id: str, cars: list[dict] | None = None, coordinator=None) -> None:
+
+def _ev_getter(key: str, fallback: str | None = None) -> Callable[[dict], Any]:
+    """Get value from car['ev_info'][key], falling back to car[fallback] or car[key]."""
+    def _get(car: dict):
+        ev = car.get("ev_info") or {}
+        if isinstance(ev, dict) and key in ev:
+            return ev.get(key)
+        if fallback:
+            return car.get(fallback)
+        return car.get(key)
+    return _get
+
+
+# -----------------------------
+# Base per-car entity
+# -----------------------------
+
+class OpenCarwingsCarEntity(CoordinatorEntity):
+    """Base entity for a single car identified by VIN.
+
+    - merges seed car dict (from initial cars list) with coordinator car dict
+      so fields like odometer don't disappear if coordinator payload is missing them
+    """
+
+    def __init__(self, coordinator, entry_id: str, vin: str, seed_car: dict | None = None) -> None:
+        super().__init__(coordinator)
         self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._cars = cars or []
-
-    @property
-    def name(self) -> str:
-        return "OpenCARWINGS Cars"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_{self._entry_id}_cars"
-
-    @property
-    def state(self) -> int:
-        cars = self._coordinator.data if self._coordinator and self._coordinator.data is not None else self._cars
-        return len(cars)
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    async def async_update(self) -> None:  # pragma: no cover - optional polling
-        # Data is managed by DataUpdateCoordinator
-        pass
-
-
-class CarVINSensor(Entity):
-    """Per-car diagnostic sensor reporting the Vehicle Identification Number (VIN)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
+        self._vin = vin
+        self._seed_car = seed_car or {}
 
     def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
+        # Merge: seed -> coordinator (coordinator wins, seed fills missing fields)
+        if self.coordinator and getattr(self.coordinator, "data", None):
+            for c in self.coordinator.data:
                 if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} VIN"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_vin_{self._vin}"
-
-    @property
-    def entity_category(self):
-        try:
-            from homeassistant.helpers.entity import EntityCategory as _EC
-            return _EC.DIAGNOSTIC
-        except Exception:
-            return "diagnostic"
+                    return {**self._seed_car, **(c or {})}
+        return self._seed_car or {}
 
     @property
     def device_info(self) -> dict[str, Any]:
         car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-    @property
-    def state(self) -> str:
-        return self._vin or "unknown"
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    async def async_update(self) -> None:  # pragma: no cover - optional polling
-        # Data is managed by DataUpdateCoordinator
-        pass
-
-
-class CarRangeACOnSensor(Entity):
-    """Sensor for driving range with A/C on (if available)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Range (A/C on)"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_range_acon_{self._vin}"
-
-    @property
-    def state(self) -> int | None:
-        car = self._get_car()
-        ev = car.get("ev_info", {}) or {}
-        return ev.get("range_acon") or car.get("range_acon")
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
+        return {
+            "identifiers": {(DOMAIN, self._vin)},
+            "name": car.get("nickname") or car.get("model_name") or "Car",
+            "manufacturer": car.get("make") or "Nissan",
+            "model": car.get("model_name") or "Leaf",
+        }
 
 
 
-class CarRangeACOffSensor(Entity):
-    """Sensor for driving range with A/C off (if available)."""
+@dataclass(frozen=True)
+class CarSensorSpec:
+    key: str
+    name: str
+    value: Callable[[dict], Any]
+    transform: Optional[Callable[[Any], Any]] = None
 
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
 
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
+def _to_int(v: Any) -> int | None:
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except Exception:
+        return None
 
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
 
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
+def _plugged_to_str(v: Any) -> str:
+    return "plugged" if bool(v) else "unplugged"
+
+
+CAR_SENSORS: list[CarSensorSpec] = [
+    CarSensorSpec("range_acon", "Range (A/C on)", _ev_getter("range_acon")),
+    CarSensorSpec("range_acoff", "Range (A/C off)", _ev_getter("range_acoff")),
+    CarSensorSpec("soc", "State of Charge", _ev_getter("soc")),
+    CarSensorSpec("soc_display", "State of Charge Display", _ev_getter("soc_display")),
+    CarSensorSpec("charge_bars", "Charge Bars", _ev_getter("charge_bars")),
+    CarSensorSpec("plugged_in", "Charge Cable", _ev_getter("plugged_in"), transform=_plugged_to_str),
+    CarSensorSpec("charging", "Charging", _ev_getter("charging")),
+    CarSensorSpec("charge_finish", "Charge Finish", _ev_getter("charge_finish")),
+    CarSensorSpec("quick_charging", "Quick Charging", _ev_getter("quick_charging")),
+    CarSensorSpec("ac_status", "AC Status", _ev_getter("ac_status")),
+    CarSensorSpec("eco_mode", "Eco Mode", _ev_getter("eco_mode")),
+    CarSensorSpec("car_running", "Running", _ev_getter("car_running")),
+    CarSensorSpec("odometer", "Odometer", lambda car: car.get("odometer"), transform=_to_int),
+    CarSensorSpec("full_chg_time", "Full Charge Time", _ev_getter("full_chg_time")),
+    CarSensorSpec("limit_chg_time", "Limit Charge Time", _ev_getter("limit_chg_time")),
+    CarSensorSpec("obc_6kw", "OBC 6kW", _ev_getter("obc_6kw")),
+]
+
+
+class CarValueSensor(OpenCarwingsCarEntity, SensorEntity):
+    """Generic per-car sensor based on CarSensorSpec."""
+
+    def __init__(self, coordinator, entry_id: str, vin: str, spec: CarSensorSpec, seed_car: dict | None = None) -> None:
+        OpenCarwingsCarEntity.__init__(self, coordinator, entry_id, vin, seed_car)
+        self._spec = spec
+        self._attr_unique_id = f"ha_opencarwings_{spec.key}_{vin}"
 
     @property
     def name(self) -> str:
         car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Range (A/C off)"
+        prefix = car.get("nickname") or car.get("model_name") or "Car"
+        return f"{prefix} {self._spec.name}"
 
     @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_range_acoff_{self._vin}"
-
-    @property
-    def state(self) -> int | None:
+    def native_value(self):
         car = self._get_car()
-        ev = car.get("ev_info", {}) or {}
-        return ev.get("range_acoff") or car.get("range_acoff")
+        val = self._spec.value(car)
 
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
+        if self._spec.key == "odometer" and val is None:
+            _LOGGER.debug("Odometer missing for VIN=%s. Top-level keys=%s", self._vin, sorted(car.keys()))
+            ev = car.get("ev_info") or {}
+            if isinstance(ev, dict):
+                _LOGGER.debug("EV keys for VIN=%s: %s", self._vin, sorted(ev.keys()))
 
+        if self._spec.transform:
+            return self._spec.transform(val)
+        return val
 
 
-class CarSoCSensor(Entity):
-    """Sensor for state of charge (percentage)."""
+# -----------------------------
+# Status sensor 
+# -----------------------------
 
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} State of Charge"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_soc_{self._vin}"
-
-    @property
-    def state(self) -> int | None:
-        car = self._get_car()
-        ev = car.get("ev_info", {}) or {}
-        return ev.get("soc") or ev.get("soc_display") or car.get("state_of_charge") or car.get("battery_level")
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-
-
-class CarChargeCableSensor(Entity):
-    """Sensor indicating if charge cable is plugged in."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Charge Cable"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_plugged_in_{self._vin}"
-
-    @property
-    def state(self) -> str | None:
-        car = self._get_car()
-        ev = car.get("ev_info", {}) or {}
-        plugged = ev.get("plugged_in") if isinstance(ev, dict) else None
-        if plugged is None:
-            plugged = car.get("plugged_in")
-        return "plugged" if plugged else "unplugged"
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-
-class CarOdometerSensor(Entity):
-    """Sensor for odometer (integer)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return {**(self._car or {}), **(c or {})}
-        return self._car or {}
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Odometer"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_odometer_{self._vin}"
-
-    @property
-    def state(self) -> int | None:
-        car = self._get_car()
-        # The API supplies odometer as a top-level field on the car object
-        val = car.get("odometer")
-        if val is None:
-            return None
-        try:
-            return int(val)
-        except Exception:
-            return None
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-
-class CarChargeBarsSensor(Entity):
-    """Sensor for charge bars (integer)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Charge Bars"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_charge_bars_{self._vin}"
-
-    @property
-    def state(self) -> int | None:
-        car = self._get_car()
-        ev = car.get("ev_info", {}) or {}
-        return ev.get("charge_bars") or car.get("charge_bars")
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-
-class CarEcoModeSensor(Entity):
-    """Sensor for eco mode (boolean)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Eco Mode"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_eco_mode_{self._vin}"
-
-    @property
-    def state(self) -> bool | None:
-        car = self._get_car()
-        ev = car.get("ev_info", {}) or {}
-        return ev.get("eco_mode") if "eco_mode" in ev else car.get("eco_mode")
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-
-class CarRunningSensor(Entity):
-    """Sensor indicating if car is running (boolean)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Running"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_car_running_{self._vin}"
-
-    @property
-    def state(self) -> bool | None:
-        car = self._get_car()
-        ev = car.get("ev_info", {}) or {}
-        return ev.get("car_running") if "car_running" in ev else car.get("car_running")
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-
-class CarChargingSensor(Entity):
-    """Sensor indicating if car is charging (boolean)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Charging"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_charging_{self._vin}"
-
-    @property
-    def state(self) -> bool | None:
-        car = self._get_car()
-        ev = car.get("ev_info", {}) or {}
-        return ev.get("charging") if "charging" in ev else car.get("charging")
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-
-class CarChargeFinishSensor(Entity):
-    """Sensor indicating charge finish (boolean)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Charge Finish"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_charge_finish_{self._vin}"
-
-    @property
-    def state(self) -> bool | None:
-        car = self._get_car()
-        ev = car.get("ev_info", {}) or {}
-        return ev.get("charge_finish") if "charge_finish" in ev else car.get("charge_finish")
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-
-class CarQuickChargingSensor(Entity):
-    """Sensor indicating quick charging (boolean)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Quick Charging"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_quick_charging_{self._vin}"
-
-    @property
-    def state(self) -> bool | None:
-        car = self._get_car()
-        ev = car.get("ev_info", {}) or {}
-        return ev.get("quick_charging") if "quick_charging" in ev else car.get("quick_charging")
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-
-class CarACStatusSensor(Entity):
-    """Sensor indicating AC status (boolean)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} AC Status"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_ac_status_{self._vin}"
-
-    @property
-    def state(self) -> bool | None:
-        car = self._get_car()
-        ev = car.get("ev_info", {}) or {}
-        return ev.get("ac_status") if "ac_status" in ev else car.get("ac_status")
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-
-class CarSoCDisplaySensor(Entity):
-    """Sensor for soc_display (number)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} State of Charge Display"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_soc_display_{self._vin}"
-
-    @property
-    def state(self) -> int | None:
-        car = self._get_car()
-        ev = car.get("ev_info", {}) or {}
-        return ev.get("soc_display") or car.get("soc_display")
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-
-class CarFullChgTimeSensor(Entity):
-    """Sensor for full_chg_time (integer)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Full Charge Time"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_full_chg_time_{self._vin}"
-
-    @property
-    def state(self) -> int | None:
-        car = self._get_car()
-        ev = car.get("ev_info", {}) or {}
-        return ev.get("full_chg_time") or car.get("full_chg_time")
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-
-class CarLimitChgTimeSensor(Entity):
-    """Sensor for limit_chg_time (integer)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Limit Charge Time"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_limit_chg_time_{self._vin}"
-
-    @property
-    def state(self) -> int | None:
-        car = self._get_car()
-        ev = car.get("ev_info", {}) or {}
-        return ev.get("limit_chg_time") or car.get("limit_chg_time")
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-
-class CarObc6kwSensor(Entity):
-    """Sensor for obc_6kw (integer)."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def name(self) -> str:
-        car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} OBC 6kW"
-
-    @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_obc_6kw_{self._vin}"
-
-    @property
-    def state(self) -> int | None:
-        car = self._get_car()
-        ev = car.get("ev_info", {}) or {}
-        return ev.get("obc_6kw") or car.get("obc_6kw")
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-
-class CarStatusSensor(Entity):
+class CarStatusSensor(OpenCarwingsCarEntity, SensorEntity):
     """High-level status string for the car (charging, running, ac_on, idle)."""
 
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
-
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
-
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
+    def __init__(self, coordinator, entry_id: str, vin: str, seed_car: dict | None = None) -> None:
+        super().__init__(coordinator, entry_id, vin, seed_car)
+        self._attr_unique_id = f"ha_opencarwings_status_{vin}"
 
     @property
     def name(self) -> str:
         car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Status"
+        prefix = car.get("nickname") or car.get("model_name") or "Car"
+        return f"{prefix} Status"
 
     @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_status_{self._vin}"
-
-    @property
-    def state(self) -> str:
+    def native_value(self) -> str:
         car = self._get_car()
         ev = car.get("ev_info", {}) or {}
         if ev.get("charging"):
@@ -940,165 +202,155 @@ class CarStatusSensor(Entity):
         return "idle"
 
     @property
-    def device_info(self) -> dict:
+    def extra_state_attributes(self) -> dict[str, Any]:
+        # Keep this SMALL and SAFE (optional). Remove entirely if you want no attributes.
         car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name")}
+        ev = car.get("ev_info", {}) or {}
+        return {
+            ATTR_ATTRIBUTION: "Data provided by OpenCARWINGS",
+            "last_connection": car.get("last_connection"),
+            "signal_level": car.get("signal_level"),
+            "soc": ev.get("soc"),
+            "range_acoff": ev.get("range_acoff"),
+        }
 
-class CarLastUpdatedSensor(Entity):
-    """Per-car diagnostic sensor reporting the timestamp provided by the car (ev_info.last_updated or location)."""
 
-    # Try to set EntityCategory if available, otherwise fall back to a string constant so tests don't break
-    try:
-        from homeassistant.helpers.entity import EntityCategory as _EC
-        _DIAGNOSTIC = _EC.DIAGNOSTIC
-    except Exception:
-        _DIAGNOSTIC = "diagnostic"
+# -----------------------------
+# Diagnostic sensors
+# -----------------------------
 
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
+class CarVINSensor(OpenCarwingsCarEntity, SensorEntity):
+    """Per-car diagnostic sensor reporting the VIN."""
 
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry_id: str, vin: str, seed_car: dict | None = None) -> None:
+        super().__init__(coordinator, entry_id, vin, seed_car)
+        self._attr_unique_id = f"ha_opencarwings_vin_{vin}"
 
     @property
     def name(self) -> str:
         car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Last Updated"
+        prefix = car.get("nickname") or car.get("model_name") or "Car"
+        return f"{prefix} VIN"
 
     @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_last_updated_{self._vin}"
+    def native_value(self) -> str:
+        return self._vin or "unknown"
+
+
+class CarLastUpdatedSensor(OpenCarwingsCarEntity, SensorEntity):
+    """Diagnostic: timestamp provided by the car (ev_info.last_updated or location or last_connection)."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry_id: str, vin: str, seed_car: dict | None = None) -> None:
+        super().__init__(coordinator, entry_id, vin, seed_car)
+        self._attr_unique_id = f"ha_opencarwings_last_updated_{vin}"
 
     @property
-    def entity_category(self):
-        # Mark as diagnostic so HA (and recorder) can treat it as non-essential metadata
-        return self._DIAGNOSTIC
-
-    @property
-    def device_info(self) -> dict[str, Any]:
+    def name(self) -> str:
         car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-    def _parse_ts(self, value: str):
-        from datetime import datetime, timezone
-        if not value:
-            return None
-        try:
-            # support ISO8601 like `2026-01-04T12:00:00Z` or with microseconds `2026-01-05T00:16:10.419903Z`
-            if value.endswith("Z"):
-                # Try with microseconds first
-                try:
-                    return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
-                except ValueError:
-                    # Fall back to format without microseconds
-                    return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-            return datetime.fromisoformat(value)
-        except Exception:
-            return None
+        prefix = car.get("nickname") or car.get("model_name") or "Car"
+        return f"{prefix} Last Updated"
 
     @property
-    def state(self) -> str:
-        # Prefer the explicit EV-provided last_updated, then location.last_updated, then last_connection
+    def native_value(self) -> str:
         car = self._get_car()
         ev = car.get("ev_info") or {}
         loc = car.get("location") or {}
         ts = ev.get("last_updated") or loc.get("last_updated") or car.get("last_connection")
-        parsed = self._parse_ts(ts) if isinstance(ts, str) else None
+        parsed = _parse_ts(ts) if isinstance(ts, str) else None
         if parsed:
-            out = parsed.isoformat()
-            if out.endswith("+00:00"):
-                out = out.replace("+00:00", "Z")
-            return out
+            return _format_dt(parsed) or parsed.isoformat()
         return "unknown"
 
-    async def async_added_to_hass(self) -> None:
-        if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
-            self.async_on_remove(unsub)
 
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
+class CarLastRequestedSensor(OpenCarwingsCarEntity, SensorEntity):
+    """Diagnostic: last time the integration requested data from the API."""
 
-    async def async_update(self) -> None:  # pragma: no cover - optional polling
-        # Data is managed by DataUpdateCoordinator
-        pass
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-
-class CarLastRequestedSensor(Entity):
-    """Per-car diagnostic sensor reporting the last time the integration requested data from the API."""
-
-    def __init__(self, entry_id: str, car: dict | None = None, coordinator=None, vin: str | None = None) -> None:
-        self._entry_id = entry_id
-        self._coordinator = coordinator
-        self._car = car or {}
-        self._vin = vin or self._car.get("vin")
-
-    def _get_car(self) -> dict:
-        if self._coordinator and self._coordinator.data is not None:
-            for c in self._coordinator.data:
-                if c.get("vin") == self._vin:
-                    return c
-            return self._car
-        return self._car
+    def __init__(self, coordinator, entry_id: str, vin: str, seed_car: dict | None = None) -> None:
+        super().__init__(coordinator, entry_id, vin, seed_car)
+        self._attr_unique_id = f"ha_opencarwings_last_requested_{vin}"
 
     @property
     def name(self) -> str:
         car = self._get_car()
-        return f"{car.get('model_name') or 'Car'} Last Requested"
+        prefix = car.get("nickname") or car.get("model_name") or "Car"
+        return f"{prefix} Last Requested"
 
     @property
-    def unique_id(self) -> str:
-        return f"ha_opencarwings_last_requested_{self._vin}"
+    def native_value(self) -> str:
+        coord = self.coordinator
+        dt = getattr(coord, "last_update_time", None) if coord else None
+        return _format_dt(dt) or "unknown"
+
+
+# -----------------------------
+# Car list sensor
+# -----------------------------
+
+class CarListSensor(SensorEntity):
+    """Sensor that represents the list of cars for the account."""
+
+    def __init__(self, entry_id: str, cars: list[dict] | None = None, coordinator=None) -> None:
+        self._entry_id = entry_id
+        self._coordinator = coordinator
+        self._cars = cars or []
+        self._attr_unique_id = f"ha_opencarwings_{entry_id}_cars"
 
     @property
-    def entity_category(self):
-        try:
-            from homeassistant.helpers.entity import EntityCategory as _EC
-            return _EC.DIAGNOSTIC
-        except Exception:
-            return "diagnostic"
+    def name(self) -> str:
+        return "OpenCARWINGS Cars"
 
     @property
-    def device_info(self) -> dict[str, Any]:
-        car = self._get_car()
-        return {"identifiers": {(DOMAIN, self._vin)}, "name": car.get("model_name"), "manufacturer": car.get("make"), "model": car.get("model_name")}
-
-    def _format_dt(self, dt):
-        if not dt:
-            return None
-        try:
-            ts = dt.isoformat()
-            if ts.endswith("+00:00"):
-                ts = ts.replace("+00:00", "Z")
-            return ts
-        except Exception:
-            return None
+    def native_value(self) -> int:
+        cars = self._coordinator.data if self._coordinator and self._coordinator.data is not None else self._cars
+        return len(cars)
 
     @property
-    def state(self) -> str:
-        # coordinator.last_update_time is a datetime when the last request occurred
-        coord = self._coordinator
-        if coord and getattr(coord, "last_update_time", None):
-            formatted = self._format_dt(coord.last_update_time)
-            return formatted or "unknown"
-        return "unknown"
+    def extra_state_attributes(self) -> dict[str, Any]:
+        cars = self._coordinator.data if self._coordinator and self._coordinator.data is not None else self._cars
+        return {
+            ATTR_ATTRIBUTION: "Data provided by OpenCARWINGS",
+            "car_vins": [c.get("vin") for c in cars if c.get("vin")],
+        }
 
     async def async_added_to_hass(self) -> None:
         if self._coordinator:
-            unsub = self._coordinator.async_add_listener(self._handle_coordinator_update)
+            unsub = self._coordinator.async_add_listener(self.async_write_ha_state)
             self.async_on_remove(unsub)
 
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
 
-    async def async_update(self) -> None:  # pragma: no cover - optional polling
-        # Data is managed by DataUpdateCoordinator
-        pass
+# -----------------------------
+# Setup
+# -----------------------------
+
+async def async_setup_entry(hass, entry, async_add_entities):
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    coordinator = data.get("coordinator")
+    cars = coordinator.data if coordinator and coordinator.data is not None else data.get("cars", [])
+
+    entities: list[SensorEntity] = []
+    entities.append(CarListSensor(entry.entry_id, cars=cars, coordinator=coordinator))
+
+    for car in cars:
+        vin = car.get("vin")
+        if not vin:
+            continue
+
+        # Generic value sensors
+        for spec in CAR_SENSORS:
+            entities.append(CarValueSensor(coordinator, entry.entry_id, vin, spec, seed_car=car))
+
+        # Status
+        entities.append(CarStatusSensor(coordinator, entry.entry_id, vin, seed_car=car))
+
+        # Diagnostics
+        entities.append(CarLastUpdatedSensor(coordinator, entry.entry_id, vin, seed_car=car))
+        entities.append(CarLastRequestedSensor(coordinator, entry.entry_id, vin, seed_car=car))
+        entities.append(CarVINSensor(coordinator, entry.entry_id, vin, seed_car=car))
+
+    async_add_entities(entities)
