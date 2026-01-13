@@ -32,3 +32,14 @@ class DataUpdateCoordinator:
         self.data = await self.update_method()
         for listener in list(self._listeners):
             listener()
+
+
+class CoordinatorEntity:
+    """Minimal CoordinatorEntity stub used in tests."""
+
+    def __init__(self, coordinator):
+        self.coordinator = coordinator
+
+    def async_write_ha_state(self):
+        # no-op: tests call listener functions directly
+        pass

@@ -38,13 +38,16 @@ async def test_entities_update_on_coordinator_change():
     entry = type("E", (), {"entry_id": "e1"})()
     await sensor_mod.async_setup_entry(hass, entry, add)
 
+    def _val(e):
+        return getattr(e, "native_value", getattr(e, "state", None))
+
     # find SOC sensor
     soc = next(x for x in added if getattr(x, "unique_id", None) == "ha_opencarwings_soc_VIN1")
-    assert soc.state == 70
+    assert _val(soc) == 70
 
     # update coordinator data
     car1_updated = {"vin": "VIN1", "model_name": "M1", "ev_info": {"soc": 80}}
     coord.data = [car1_updated]
     coord.notify()
 
-    assert soc.state == 80
+    assert _val(soc) == 80

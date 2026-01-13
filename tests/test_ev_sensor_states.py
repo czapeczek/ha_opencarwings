@@ -38,14 +38,17 @@ async def test_ev_sensor_states():
     await sensor_mod.async_setup_entry(hass, entry, add)
 
     # verify some of the new sensors return expected states
+    def _val(e):
+        return getattr(e, "native_value", getattr(e, "state", None))
+
     charge_bars = next(x for x in added if x.unique_id == "ha_opencarwings_charge_bars_VIN1")
-    assert charge_bars.state == 5
+    assert _val(charge_bars) == 5
 
     soc_display = next(x for x in added if x.unique_id == "ha_opencarwings_soc_display_VIN1")
-    assert soc_display.state == 79
+    assert _val(soc_display) == 79
 
     odom = next(x for x in added if x.unique_id == "ha_opencarwings_odometer_VIN1")
-    assert odom.state == 12345
+    assert _val(odom) == 12345
 
     # Also ensure a string-valued odometer is coerced to int
     hass2 = type("H", (), {"data": {"ha_opencarwings": {"e2": {"cars": [{
@@ -63,35 +66,35 @@ async def test_ev_sensor_states():
     await sensor_mod.async_setup_entry(hass2, entry2, add2)
 
     odom2 = next(x for x in added2 if x.unique_id == "ha_opencarwings_odometer_VIN2")
-    assert odom2.state == 54321
+    assert _val(odom2) == 54321
 
     eco = next(x for x in added if x.unique_id == "ha_opencarwings_eco_mode_VIN1")
-    assert eco.state is True
+    assert _val(eco) is True
 
     running = next(x for x in added if x.unique_id == "ha_opencarwings_car_running_VIN1")
-    assert running.state is False
+    assert _val(running) is False
 
     charging = next(x for x in added if x.unique_id == "ha_opencarwings_charging_VIN1")
-    assert charging.state is True
+    assert _val(charging) is True
 
     charge_finish = next(x for x in added if x.unique_id == "ha_opencarwings_charge_finish_VIN1")
-    assert charge_finish.state is False
+    assert _val(charge_finish) is False
 
     quick = next(x for x in added if x.unique_id == "ha_opencarwings_quick_charging_VIN1")
-    assert quick.state is True
+    assert _val(quick) is True
 
     ac = next(x for x in added if x.unique_id == "ha_opencarwings_ac_status_VIN1")
-    assert ac.state is True
+    assert _val(ac) is True
 
     full = next(x for x in added if x.unique_id == "ha_opencarwings_full_chg_time_VIN1")
-    assert full.state == 30
+    assert _val(full) == 30
 
     limit = next(x for x in added if x.unique_id == "ha_opencarwings_limit_chg_time_VIN1")
-    assert limit.state == 60
+    assert _val(limit) == 60
 
     obc = next(x for x in added if x.unique_id == "ha_opencarwings_obc_6kw_VIN1")
-    assert obc.state == 1
+    assert _val(obc) == 1
 
     # status sensor should reflect charging first
     status = next(x for x in added if x.unique_id == "ha_opencarwings_status_VIN1")
-    assert status.state == "charging"
+    assert _val(status) == "charging"

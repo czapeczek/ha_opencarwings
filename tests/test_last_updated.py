@@ -31,6 +31,9 @@ async def test_last_updated_sensor_reports_latest_timestamp_per_car():
     entry = type("E", (), {"entry_id": "e1"})()
     await sensor_mod.async_setup_entry(hass, entry, add)
 
+    def _val(e):
+        return getattr(e, "native_value", getattr(e, "state", None))
+
     last1 = [e for e in added if getattr(e, "unique_id", None) == "ha_opencarwings_last_updated_VIN1"]
     last2 = [e for e in added if getattr(e, "unique_id", None) == "ha_opencarwings_last_updated_VIN2"]
     requested1 = [e for e in added if getattr(e, "unique_id", None) == "ha_opencarwings_last_requested_VIN1"]
@@ -38,11 +41,11 @@ async def test_last_updated_sensor_reports_latest_timestamp_per_car():
     assert len(last1) == 1
     assert len(last2) == 1
     assert len(requested1) == 1
-    assert last1[0].state == "2026-01-04T12:00:00Z"
-    assert last2[0].state == latest
+    assert _val(last1[0]) == "2026-01-04T12:00:00Z"
+    assert _val(last2[0]) == latest
 
     # The Last Requested sensor should reflect the coordinator's last_update_time
-    assert requested1[0].state == "2026-01-04T14:00:00Z"
+    assert _val(requested1[0]) == "2026-01-04T14:00:00Z"
 
     # entity_category should be diagnostic (stubbed fallback allowed) and device_info present
     assert getattr(last1[0], "entity_category", None) is not None
@@ -64,7 +67,9 @@ async def test_last_requested_sensor_unknown_without_coordinator():
 
     requested = [e for e in added if getattr(e, "unique_id", None) == "ha_opencarwings_last_requested_VIN1"]
     assert len(requested) == 1
-    assert requested[0].state == "unknown"
+    def _val(e):
+        return getattr(e, "native_value", getattr(e, "state", None))
+    assert _val(requested[0]) == "unknown"
 
 
 @pytest.mark.asyncio
@@ -95,6 +100,8 @@ async def test_last_updated_sensor_parses_timestamps_with_microseconds():
     last1 = [e for e in added if getattr(e, "unique_id", None) == "ha_opencarwings_last_updated_VIN1"]
     
     assert len(last1) == 1
+    def _val(e):
+        return getattr(e, "native_value", getattr(e, "state", None))
     # The sensor should successfully parse and return the timestamp
-    assert last1[0].state == "2026-01-05T00:16:10.419903Z"
-    assert last1[0].state != "unknown"
+    assert _val(last1[0]) == "2026-01-05T00:16:10.419903Z"
+    assert _val(last1[0]) != "unknown"

@@ -21,20 +21,23 @@ async def test_battery_and_location_and_switch_creation(monkeypatch):
     assert len(added) == 21
 
     # new EV sensors
+    def _val(e):
+        return getattr(e, "native_value", getattr(e, "state", None))
+
     soc = next(x for x in added if x.unique_id == "ha_opencarwings_soc_VIN1")
-    assert soc.state == 80
+    assert _val(soc) == 80
 
     range_on = next(x for x in added if x.unique_id == "ha_opencarwings_range_acon_VIN1")
-    assert range_on.state == 120
+    assert _val(range_on) == 120
 
     range_off = next(x for x in added if x.unique_id == "ha_opencarwings_range_acoff_VIN1")
-    assert range_off.state == 140
+    assert _val(range_off) == 140
 
     plug = next(x for x in added if x.unique_id == "ha_opencarwings_plugged_in_VIN1")
-    assert plug.state == "plugged"
+    assert _val(plug) == "plugged"
 
     status = next(x for x in added if x.unique_id == "ha_opencarwings_status_VIN1")
-    assert status.state == "idle"
+    assert _val(status) == "idle"
 
     # Now test switch creation
     sw_added = []
