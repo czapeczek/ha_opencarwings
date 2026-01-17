@@ -7,7 +7,7 @@ from typing import Any, Callable, Optional
 import logging
 
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.const import ATTR_ATTRIBUTION
+from homeassistant.const import ATTR_ATTRIBUTION, PERCENTAGE
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 try:
@@ -15,6 +15,12 @@ try:
 except Exception:  # pragma: no cover
     class EntityCategory:  # type: ignore
         DIAGNOSTIC = "diagnostic"
+
+try:
+    from homeassistant.components.sensor import SensorDeviceClass
+except Exception:  # pragma: no cover
+    class SensorDeviceClass:  # type: ignore
+        BATTERY = "battery"
 
 from . import DOMAIN
 
@@ -63,6 +69,24 @@ def _ev_getter(key: str, fallback: str | None = None) -> Callable[[dict], Any]:
         return car.get(key)
     return _get
 
+def _to_float(v: Any) -> float | None:
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except Exception:
+        try:
+            return float(s)
+        except Exception:
+            return None
+
+def _round_1(v: Any) -> float | None:
+    if v is None:
+        return None
+    try:
+        return round(float(v), 1)
+    except Exception:
+        return None
 
 # -----------------------------
 # Base per-car entity
@@ -107,6 +131,8 @@ class CarSensorSpec:
     name: str
     value: Callable[[dict], Any]
     transform: Optional[Callable[[Any], Any]] = None
+    device_class: Optional[str] = None
+    unit_of_measurement: Optional[str] = None
 
 
 def _to_int(v: Any) -> int | None:
@@ -123,10 +149,22 @@ def _plugged_to_str(v: Any) -> str:
 
 
 CAR_SENSORS: list[CarSensorSpec] = [
-    CarSensorSpec("range_acon", "Range (A/C on)", _ev_getter("range_acon")),
-    CarSensorSpec("range_acoff", "Range (A/C off)", _ev_getter("range_acoff")),
-    CarSensorSpec("soc", "State of Charge", _ev_getter("soc")),
-    CarSensorSpec("soc_display", "State of Charge Display", _ev_getter("soc_display")),
+    CarSensorSpec(
+        "range_acon",
+        "Range (A/C on)",
+        _ev_getter("range_acon"),
+        transform=_to_float,
+        unit_of_measurement="km",
+    ),
+    CarSensorSpec(
+        "range_acoff",
+        "Range (A/C off)",
+        _ev_getter("range_acoff"),
+        transform=_to_float,
+        unit_of_measurement="km",
+    ),
+    CarSensorSpec("soc", "State of Charge", _ev_getter("soc"), transform=_round_1, device_class=SensorDeviceClass.BATTERY, unit_of_measurement=PERCENTAGE),
+    CarSensorSpec("soc_display", "State of Charge Display", _ev_getter("soc_display"), transform=_round_1, device_class=SensorDeviceClass.BATTERY, unit_of_measurement=PERCENTAGE),
     CarSensorSpec("charge_bars", "Charge Bars", _ev_getter("charge_bars")),
     CarSensorSpec("plugged_in", "Charge Cable", _ev_getter("plugged_in"), transform=_plugged_to_str),
     CarSensorSpec("charging", "Charging", _ev_getter("charging")),
@@ -135,7 +173,7 @@ CAR_SENSORS: list[CarSensorSpec] = [
     CarSensorSpec("ac_status", "AC Status", _ev_getter("ac_status")),
     CarSensorSpec("eco_mode", "Eco Mode", _ev_getter("eco_mode")),
     CarSensorSpec("car_running", "Running", _ev_getter("car_running")),
-    CarSensorSpec("odometer", "Odometer", lambda car: car.get("odometer"), transform=_to_int),
+    CarSensorSpec("odometer", "Odometer", lambda car: car.get("odometer"), transform=_to_int, unit_of_measurement="km",),
     CarSensorSpec("full_chg_time", "Full Charge Time", _ev_getter("full_chg_time")),
     CarSensorSpec("limit_chg_time", "Limit Charge Time", _ev_getter("limit_chg_time")),
     CarSensorSpec("obc_6kw", "OBC 6kW", _ev_getter("obc_6kw")),
@@ -149,6 +187,10 @@ class CarValueSensor(OpenCarwingsCarEntity, SensorEntity):
         OpenCarwingsCarEntity.__init__(self, coordinator, entry_id, vin, seed_car)
         self._spec = spec
         self._attr_unique_id = f"ha_opencarwings_{spec.key}_{vin}"
+        if spec.device_class:
+            self._attr_device_class = spec.device_class
+        if spec.unit_of_measurement:
+            self._attr_native_unit_of_measurement = spec.unit_of_measurement
 
     @property
     def name(self) -> str:
@@ -160,12 +202,6 @@ class CarValueSensor(OpenCarwingsCarEntity, SensorEntity):
     def native_value(self):
         car = self._get_car()
         val = self._spec.value(car)
-
-        if self._spec.key == "odometer" and val is None:
-            _LOGGER.debug("Odometer missing for VIN=%s. Top-level keys=%s", self._vin, sorted(car.keys()))
-            ev = car.get("ev_info") or {}
-            if isinstance(ev, dict):
-                _LOGGER.debug("EV keys for VIN=%s: %s", self._vin, sorted(ev.keys()))
 
         if self._spec.transform:
             return self._spec.transform(val)

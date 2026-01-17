@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
+import asyncio
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import OpenCarWingsAPI, AuthenticationError
+from .api import OpenCarWingsAPI, AuthenticationError, RequestError
 
 DOMAIN = "ha_opencarwings"
 PLATFORMS = ["sensor", "switch", "device_tracker", "button"]
@@ -39,27 +41,90 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Store client in hass.data under the entry id
     hass.data[DOMAIN][entry.entry_id] = {"client": client}
 
+    async def _enrich_cars_with_details(cars: list) -> list:
+        """Enrich lite car objects (from /api/car/) with detail fetched by VIN."""
+        if not isinstance(cars, list) or not cars:
+            return cars
+        if not hasattr(client, "async_get_car_by_vin"):
+            return cars
+
+        vins: list[str] = []
+        tasks = []
+        for c in cars:
+            if isinstance(c, dict) and c.get("vin"):
+                vin = str(c["vin"])
+                vins.append(vin)
+                tasks.append(client.async_get_car_by_vin(vin))
+
+        if not tasks:
+            return cars
+
+        details = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Merge by VIN: detail wins, list fills missing fields
+        by_vin: dict[str, dict] = {}
+        for c in cars:
+            if isinstance(c, dict) and c.get("vin"):
+                by_vin[str(c["vin"])] = c
+
+        for d in details:
+            if isinstance(d, Exception) or not isinstance(d, dict):
+                continue
+            vin = d.get("vin")
+            if not vin:
+                continue
+            vin = str(vin)
+            by_vin[vin] = {**by_vin.get(vin, {}), **d}
+
+        # Preserve list order
+        out: list[dict] = []
+        for c in cars:
+            if isinstance(c, dict) and c.get("vin"):
+                out.append(by_vin.get(str(c["vin"]), c))
+            elif isinstance(c, dict):
+                out.append(c)
+
+        return out
+
     async def _async_update_data():
         """Fetch data from API."""
         from datetime import datetime, timezone
+
         try:
             # Prefer dedicated helper if available
             if hasattr(client, "async_get_cars"):
                 cars = await client.async_get_cars()
+
+                # Try to enrich with detail endpoint (to get odometer, versions, etc.)
+                try:
+                    cars = await _enrich_cars_with_details(cars)
+                except Exception as err:
+                    _LOGGER.debug("Could not enrich car list with details: %s", err)
+
                 # Track the last successful update time for CarLastRequestedSensor
                 coordinator.last_update_time = datetime.now(timezone.utc)
                 return cars
+
             # Fallback to raw request-based client (used in tests)
             if hasattr(client, "async_request"):
                 resp = await client.async_request("GET", "/api/car/")
                 result = await resp.json()
-                # Track the last successful update time for CarLastRequestedSensor
+
+                try:
+                    result = await _enrich_cars_with_details(result)
+                except Exception as err:
+                    _LOGGER.debug("Could not enrich car list with details: %s", err)
+
                 coordinator.last_update_time = datetime.now(timezone.utc)
                 return result
+
             raise RuntimeError("Client has no method to fetch cars")
+
         except AuthenticationError:
             # Let Home Assistant handle reauth via existing logic
             raise
+        except RequestError as err:
+            raise UpdateFailed(err)
         except Exception as err:  # pragma: no cover - network or unexpected
             raise UpdateFailed(err)
 

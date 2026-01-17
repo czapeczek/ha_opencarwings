@@ -5,6 +5,6 @@
   "config_flow": true,
   "iot_class": "cloud_polling",
   "documentation": "https://github.com/czapeczek/ha_opencarwings",
-  "codeowners": ["@czapeczek"],
+  "codeowners": ["@czapeczek", "@tomeczko"],
   "platforms": ["sensor", "switch", "device_tracker", "button"]
 }

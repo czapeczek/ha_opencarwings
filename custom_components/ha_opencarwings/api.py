@@ -135,3 +135,22 @@ class OpenCarWingsAPI:
                 resp = await self._session.request(method, url, headers=headers, **kwargs)
 
         return resp
+
+    async def async_get_car_by_vin(self, vin: str) -> dict:
+        """Retrieve full car detail by VIN."""
+        vin = (vin or "").strip()
+        if not vin:
+            raise RequestError("VIN missing")
+
+        # TODO: if your spec says a different path, change ONLY this line:
+        path = f"/api/car/{vin}/"
+
+        resp = await self.async_request("GET", path)
+        if resp.status == 401:
+            raise AuthenticationError("Not authorized to fetch car detail")
+        if resp.status != 200:
+            text = await resp.text()
+            _LOGGER.debug("Failed to fetch car detail by VIN %s: %s %s", vin, resp.status, text)
+            raise RequestError(f"Failed fetching car detail by VIN: {resp.status}")
+
+        return await resp.json()
