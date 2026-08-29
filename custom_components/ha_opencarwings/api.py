@@ -4,153 +4,27 @@ Provides methods to obtain and refresh JWT tokens and make authenticated request
 """
 from __future__ import annotations
 
-import asyncio
-import logging
-from typing import Optional
-
-try:
-    from aiohttp import ClientResponse
-except Exception:  # pragma: no cover - aiohttp not available in tests
-    ClientResponse = object
-
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
-
-_LOGGER = logging.getLogger(__name__)
+from custom_components.ha_opencarwings.aioclient import RESTClientObject
 
 DEFAULT_API_BASE = "https://opencarwings.viaaq.eu"
-
 
 class AuthenticationError(Exception):
     pass
 
+import opencarwings_client
 
-class RequestError(Exception):
-    pass
+def get_client(hass, base_url: str = DEFAULT_API_BASE, api_token: str | None=None) -> opencarwings_client.ApiClient:
+    configuration = opencarwings_client.Configuration(
+        host=base_url
+    )
 
+    if api_token is not None and len(api_token) > 0:
+        configuration.api_key_prefix['Personal API Key'] = 'Token'
+        configuration.api_key['Personal API Key'] = api_token
 
-class OpenCarWingsAPI:
-    def __init__(self, hass, base_url: str = DEFAULT_API_BASE) -> None:
-        self.hass = hass
-        # Import the helper dynamically so tests that monkeypatch
-        # `homeassistant.helpers.aiohttp_client.async_get_clientsession`
-        # will be respected.
-        try:
-            import importlib
+    rest_client = RESTClientObject(configuration)
 
-            aiohttp_mod = importlib.import_module(
-                "homeassistant.helpers.aiohttp_client"
-            )
-            self._session = aiohttp_mod.async_get_clientsession(hass)
-        except Exception:  # pragma: no cover - fallback for tests
-            self._session = None
-
-        self._base = base_url.rstrip("/")
-        self._access: Optional[str] = None
-        self._refresh: Optional[str] = None
-        self._lock = asyncio.Lock()
-
-    def set_tokens(self, access: str | None, refresh: str | None) -> None:
-        self._access = access
-        self._refresh = refresh
-
-    async def async_obtain_token(self, username: str, password: str) -> dict:
-        url = f"{self._base}/api/token/obtain/"
-        payload = {"username": username, "password": password}
-
-        _LOGGER.debug("Requesting JWT token for user %s", username)
-        resp = await self._session.post(url, json=payload)
-        if resp.status not in (200, 201):
-            text = await resp.text()
-            _LOGGER.debug("Token obtain failed: %s %s", resp.status, text)
-            raise AuthenticationError("Invalid credentials or server error")
-
-        data = await resp.json()
-        self._access = data.get("access")
-        self._refresh = data.get("refresh")
-        if not self._access:
-            raise AuthenticationError("No access token received")
-        return data
-
-    async def async_refresh_token(self) -> str:
-        if not self._refresh:
-            raise AuthenticationError("No refresh token available")
-        url = f"{self._base}/api/token/refresh/"
-        payload = {"refresh": self._refresh}
-
-        _LOGGER.debug("Refreshing JWT token")
-        resp = await self._session.post(url, json=payload)
-        if resp.status not in (200, 201):
-            text = await resp.text()
-            _LOGGER.debug("Token refresh failed: %s %s", resp.status, text)
-            raise AuthenticationError("Refresh failed")
-
-        data = await resp.json()
-        access = data.get("access")
-        if not access:
-            raise AuthenticationError("No access token received on refresh")
-        self._access = access
-        return access
-
-    async def async_get_cars(self) -> list:
-        """Retrieve a list of cars for the authenticated account.
-
-        Returns a list of car objects (as dictionaries) on success.
-        Raises RequestError or AuthenticationError on failures.
-        """
-        resp = await self.async_request("GET", "/api/car/")
-        if resp.status == 401:
-            raise AuthenticationError("Not authorized to fetch cars")
-        if resp.status != 200:
-            text = await resp.text()
-            _LOGGER.debug("Failed to fetch cars: %s %s", resp.status, text)
-            raise RequestError(f"Failed fetching cars: {resp.status}")
-
-        data = await resp.json()
-        # Expecting an array of car objects
-        return data
-
-    async def async_request(self, method: str, path: str, **kwargs) -> ClientResponse:
-        url = f"{self._base}{path if path.startswith('/') else '/' + path}"
-        headers = kwargs.pop("headers", {}) or {}
-
-        if self._access:
-            headers["Authorization"] = f"Bearer {self._access}"
-
-        try:
-            resp = await self._session.request(method, url, headers=headers, **kwargs)
-        except Exception as err:  # pragma: no cover - network error
-            _LOGGER.exception("Request to OpenCARWINGS failed")
-            raise RequestError(err)
-
-        # If unauthorized, try to refresh once and retry
-        if resp.status == 401 and self._refresh:
-            _LOGGER.debug("Received 401, attempting token refresh")
-            async with self._lock:
-                try:
-                    await self.async_refresh_token()
-                except AuthenticationError:
-                    _LOGGER.debug("Refresh failed during retry")
-                    raise
-                headers["Authorization"] = f"Bearer {self._access}"
-                resp = await self._session.request(method, url, headers=headers, **kwargs)
-
-        return resp
-
-    async def async_get_car_by_vin(self, vin: str) -> dict:
-        """Retrieve full car detail by VIN."""
-        vin = (vin or "").strip()
-        if not vin:
-            raise RequestError("VIN missing")
-
-        # TODO: if your spec says a different path, change ONLY this line:
-        path = f"/api/car/{vin}/"
-
-        resp = await self.async_request("GET", path)
-        if resp.status == 401:
-            raise AuthenticationError("Not authorized to fetch car detail")
-        if resp.status != 200:
-            text = await resp.text()
-            _LOGGER.debug("Failed to fetch car detail by VIN %s: %s %s", vin, resp.status, text)
-            raise RequestError(f"Failed fetching car detail by VIN: {resp.status}")
-
-        return await resp.json()
+    client = opencarwings_client.ApiClient(configuration)
+    client.rest_client = rest_client
+    client.set_default_header("User-Agent", "OpenCARWINGS-HomeAssistant/1.0")
+    return client

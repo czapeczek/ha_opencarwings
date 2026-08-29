@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
-import asyncio
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-
-from .api import OpenCarWingsAPI, AuthenticationError, RequestError
 
 DOMAIN = "ha_opencarwings"
 PLATFORMS = ["sensor", "switch", "device_tracker", "button"]
@@ -20,14 +16,22 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    from .api import get_client
+    from .util import CarData
+    import opencarwings_client
+    from opencarwings_client import CarSerializerList, ApiException, Car
+    from typing import List
+    import asyncio
+    from datetime import timedelta
+
     """Set up the OpenCARWINGS integration from a config entry with a DataUpdateCoordinator."""
     hass.data.setdefault(DOMAIN, {})
 
     # Respect configured API base URL (options override initial data)
     opts = getattr(entry, "options", {}) or {}
     base_url = opts.get("api_base_url", entry.data.get("api_base_url"))
-    client = OpenCarWingsAPI(hass, base_url=base_url) if base_url else OpenCarWingsAPI(hass)
-    client.set_tokens(entry.data.get("access_token"), entry.data.get("refresh_token"))
+    api_token = opts.get("api_token", entry.data.get("api_token"))
+    client = await hass.async_add_executor_job(get_client, hass, base_url, api_token)
 
     # Ensure base_url is accessible on the client instance (helps tests and some clients)
     if base_url:
@@ -41,89 +45,64 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Store client in hass.data under the entry id
     hass.data[DOMAIN][entry.entry_id] = {"client": client}
 
-    async def _enrich_cars_with_details(cars: list) -> list:
+    async def _enrich_cars_with_details(cars: List[CarData]) -> List[CarData]:
         """Enrich lite car objects (from /api/car/) with detail fetched by VIN."""
         if not isinstance(cars, list) or not cars:
             return cars
-        if not hasattr(client, "async_get_car_by_vin"):
-            return cars
 
-        vins: list[str] = []
+        cars_api = opencarwings_client.CarsApi(client)
         tasks = []
+        by_vin: dict[str, CarData] = {}
         for c in cars:
-            if isinstance(c, dict) and c.get("vin"):
-                vin = str(c["vin"])
-                vins.append(vin)
-                tasks.append(client.async_get_car_by_vin(vin))
+            by_vin[str(c.vin)] = c
+            tasks.append(cars_api.api_car_read(str(c.vin)))
 
         if not tasks:
             return cars
 
         details = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Merge by VIN: detail wins, list fills missing fields
-        by_vin: dict[str, dict] = {}
-        for c in cars:
-            if isinstance(c, dict) and c.get("vin"):
-                by_vin[str(c["vin"])] = c
-
         for d in details:
-            if isinstance(d, Exception) or not isinstance(d, dict):
+            if isinstance(d, Exception) or not isinstance(d, Car):
                 continue
-            vin = d.get("vin")
+            vin = d.vin
             if not vin:
                 continue
             vin = str(vin)
-            by_vin[vin] = {**by_vin.get(vin, {}), **d}
+            by_vin[vin].car_detail = d
 
         # Preserve list order
-        out: list[dict] = []
+        out: List[CarData] = []
         for c in cars:
-            if isinstance(c, dict) and c.get("vin"):
-                out.append(by_vin.get(str(c["vin"]), c))
-            elif isinstance(c, dict):
+            if c.vin:
+                out.append(by_vin.get(str(c.vin), c))
+            else:
                 out.append(c)
 
         return out
 
-    async def _async_update_data():
+    async def _async_update_data() -> List[CarData]:
         """Fetch data from API."""
         from datetime import datetime, timezone
 
         try:
+            cars_api = opencarwings_client.CarsApi(client)
             # Prefer dedicated helper if available
-            if hasattr(client, "async_get_cars"):
-                cars = await client.async_get_cars()
+            cars_list: List[CarSerializerList] = await cars_api.api_car_list()
 
-                # Try to enrich with detail endpoint (to get odometer, versions, etc.)
-                try:
-                    cars = await _enrich_cars_with_details(cars)
-                except Exception as err:
-                    _LOGGER.debug("Could not enrich car list with details: %s", err)
+            cars = [CarData(vin=x.vin, list_car=x) for x in cars_list]
 
-                # Track the last successful update time for CarLastRequestedSensor
-                coordinator.last_update_time = datetime.now(timezone.utc)
-                return cars
+            # Try to enrich with detail endpoint (to get odometer, versions, etc.)
+            try:
+                cars = await _enrich_cars_with_details(cars)
+            except Exception as err:
+                _LOGGER.exception(err)
+                _LOGGER.error("Could not enrich car list with details: %s", err)
 
-            # Fallback to raw request-based client (used in tests)
-            if hasattr(client, "async_request"):
-                resp = await client.async_request("GET", "/api/car/")
-                result = await resp.json()
-
-                try:
-                    result = await _enrich_cars_with_details(result)
-                except Exception as err:
-                    _LOGGER.debug("Could not enrich car list with details: %s", err)
-
-                coordinator.last_update_time = datetime.now(timezone.utc)
-                return result
-
-            raise RuntimeError("Client has no method to fetch cars")
-
-        except AuthenticationError:
-            # Let Home Assistant handle reauth via existing logic
-            raise
-        except RequestError as err:
+            # Track the last successful update time for CarLastRequestedSensor
+            coordinator.last_update_time = datetime.now(timezone.utc)
+            return cars
+        except ApiException as err:
             raise UpdateFailed(err)
         except Exception as err:  # pragma: no cover - network or unexpected
             raise UpdateFailed(err)
@@ -146,8 +125,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         await coordinator.async_config_entry_first_refresh()
         hass.data[DOMAIN][entry.entry_id]["cars"] = coordinator.data or []
-    except AuthenticationError:
-        _LOGGER.warning("Tokens invalid or expired; requesting reauthentication")
+    except ApiException as err:
+        _LOGGER.error(err)
         hass.config_entries.async_start_reauth(entry.entry_id)
         return False
     except Exception:
