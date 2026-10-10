@@ -5,10 +5,14 @@ from custom_components.ha_opencarwings import config_flow as cfg
 
 
 class MockClient:
+    instances = []
+
     def __init__(self, hass=None, base_url=None):
         self.base_url = base_url
+        MockClient.instances.append(self)
 
-    async def async_obtain_token(self, username, password):
+    async def async_obtain_token(self, username, password, otp_code=None):
+        self.otp_code = otp_code
         if username == "good":
             return {"access": "ax", "refresh": "rx"}
         raise Exception("auth")
@@ -49,3 +53,16 @@ async def test_config_flow_auth_failure(monkeypatch):
     # On auth failure, the form is shown with errors
     assert result["type"] == "form"
     assert "base" in result.get("errors", {})
+
+
+@pytest.mark.asyncio
+async def test_config_flow_passes_otp_code(monkeypatch):
+    monkeypatch.setattr(cfg, "OpenCarWingsAPI", MockClient)
+
+    flow = OpenCARWINGSConfigFlow()
+    result = await flow.async_step_user({"username": "good", "password": "p", "otp_code": " 123456 "})
+
+    assert result["type"] == "create_entry"
+    assert MockClient.instances[-1].otp_code == "123456"
+    # the one-time code must not be persisted
+    assert "otp_code" not in result["data"]

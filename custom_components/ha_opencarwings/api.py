@@ -53,9 +53,11 @@ class OpenCarWingsAPI:
         self._access = access
         self._refresh = refresh
 
-    async def async_obtain_token(self, username: str, password: str) -> dict:
+    async def async_obtain_token(self, username: str, password: str, otp_code: str | None = None) -> dict:
         url = f"{self._base}/api/token/obtain/"
         payload = {"username": username, "password": password}
+        if otp_code:
+            payload["otp_code"] = otp_code
 
         _LOGGER.debug("Requesting JWT token for user %s", username)
         resp = await self._session.post(url, json=payload)

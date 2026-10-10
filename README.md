@@ -93,6 +93,7 @@ Choose one of the options below:
 Setup is done via the UI. You will need:
 
 - **Username** and **Password** for your OpenCARWINGS account
+- **OTP code** (optional) — only if two-factor authentication is enabled on your account: enter the current 6-digit code from your authenticator app. It is used once to obtain the tokens and is not stored.
 - **Scan interval** (polling frequency, default: 15 minutes). The setup and options flows present a friendly select with labeled choices (for example: "1 minute", "15 minutes (default)", "1 hour", "1 day").
 - **API base URL** (optional — defaults to the known OpenCARWINGS endpoint)
 

@@ -25,6 +25,7 @@ class MockSession:
         self._request_calls = 0
 
     async def post(self, url, json=None, **kwargs):
+        self.last_post_json = json
         if self.posts:
             return self.posts.pop(0)
         return MockResponse(404, {}, "not mocked")
@@ -52,6 +53,25 @@ async def test_obtain_token_success(monkeypatch):
     assert client._access == "a1"
     assert client._refresh == "r1"
     assert data["access"] == "a1"
+
+
+@pytest.mark.asyncio
+async def test_obtain_token_sends_otp_code(monkeypatch):
+    mock_session = MockSession()
+    mock_session.posts.append(MockResponse(200, {"access": "a1", "refresh": "r1"}))
+
+    monkeypatch.setattr(
+        "homeassistant.helpers.aiohttp_client.async_get_clientsession",
+        lambda hass: mock_session,
+    )
+
+    client = api.OpenCarWingsAPI(hass=None)
+    await client.async_obtain_token("user", "pass", "123456")
+    assert mock_session.last_post_json["otp_code"] == "123456"
+
+    mock_session.posts.append(MockResponse(200, {"access": "a1", "refresh": "r1"}))
+    await client.async_obtain_token("user", "pass")
+    assert "otp_code" not in mock_session.last_post_json
 
 
 @pytest.mark.asyncio

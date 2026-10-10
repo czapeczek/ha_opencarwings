@@ -43,7 +43,7 @@ class OpenCARWINGSConfigFlow(config_entries.ConfigFlow, domain="ha_opencarwings"
 
             client = OpenCarWingsAPI(getattr(self, "hass", None), base_url=api_base)
             try:
-                tokens = await client.async_obtain_token(username, password)
+                tokens = await client.async_obtain_token(username, password, user_input.get("otp_code", "").strip())
             except AuthenticationError:
                 errors["base"] = "auth"
             except Exception:  # pragma: no cover - fallback
@@ -79,6 +79,7 @@ class OpenCARWINGSConfigFlow(config_entries.ConfigFlow, domain="ha_opencarwings"
             {
                 vol.Required(CONF_USERNAME): str,
                 vol.Required(CONF_PASSWORD): str,
+                vol.Optional("otp_code", default=""): str,
                 vol.Required("scan_interval", default=DEFAULT_SCAN_INTERVAL_MIN): scan_selector,
                 vol.Required("api_base_url", default=DEFAULT_API_BASE_URL): str,
             }
