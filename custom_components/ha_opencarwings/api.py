@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
+from typing import Callable, Optional
 
 try:
     from aiohttp import ClientResponse
@@ -47,11 +47,27 @@ class OpenCarWingsAPI:
         self._base = base_url.rstrip("/")
         self._access: Optional[str] = None
         self._refresh: Optional[str] = None
+        self._username: Optional[str] = None
+        self._password: Optional[str] = None
+        self._on_tokens_updated: Optional[Callable[[str | None, str | None], None]] = None
         self._lock = asyncio.Lock()
 
     def set_tokens(self, access: str | None, refresh: str | None) -> None:
         self._access = access
         self._refresh = refresh
+
+    def set_credentials(self, username: str | None, password: str | None) -> None:
+        """Store credentials used to log in again when the refresh token is rejected."""
+        self._username = username
+        self._password = password
+
+    def set_token_callback(self, callback: Callable[[str | None, str | None], None]) -> None:
+        """Register a callback invoked with (access, refresh) whenever tokens change."""
+        self._on_tokens_updated = callback
+
+    def _notify_tokens_updated(self) -> None:
+        if self._on_tokens_updated:
+            self._on_tokens_updated(self._access, self._refresh)
 
     async def async_obtain_token(self, username: str, password: str) -> dict:
         url = f"{self._base}/api/token/obtain/"
@@ -62,13 +78,16 @@ class OpenCarWingsAPI:
         if resp.status not in (200, 201):
             text = await resp.text()
             _LOGGER.debug("Token obtain failed: %s %s", resp.status, text)
-            raise AuthenticationError("Invalid credentials or server error")
+            if resp.status in (400, 401):
+                raise AuthenticationError("Invalid credentials")
+            raise RequestError(f"Token obtain failed: {resp.status}")
 
         data = await resp.json()
         self._access = data.get("access")
         self._refresh = data.get("refresh")
         if not self._access:
             raise AuthenticationError("No access token received")
+        self._notify_tokens_updated()
         return data
 
     async def async_refresh_token(self) -> str:
@@ -82,14 +101,34 @@ class OpenCarWingsAPI:
         if resp.status not in (200, 201):
             text = await resp.text()
             _LOGGER.debug("Token refresh failed: %s %s", resp.status, text)
-            raise AuthenticationError("Refresh failed")
+            if resp.status in (400, 401):
+                raise AuthenticationError("Refresh failed")
+            raise RequestError(f"Token refresh failed: {resp.status}")
 
         data = await resp.json()
         access = data.get("access")
         if not access:
             raise AuthenticationError("No access token received on refresh")
         self._access = access
+        # Server rotates refresh tokens and blacklists the old one, so the
+        # new refresh token must replace it or the next refresh will fail.
+        if data.get("refresh"):
+            self._refresh = data["refresh"]
+        self._notify_tokens_updated()
         return access
+
+    async def _async_renew_tokens(self) -> None:
+        """Get a new access token: refresh first, then fall back to a full login."""
+        if self._refresh:
+            try:
+                await self.async_refresh_token()
+                return
+            except AuthenticationError:
+                _LOGGER.debug("Refresh token rejected, logging in again with stored credentials")
+
+        if not (self._username and self._password):
+            raise AuthenticationError("Token refresh failed and no stored credentials")
+        await self.async_obtain_token(self._username, self._password)
 
     async def async_get_cars(self) -> list:
         """Retrieve a list of cars for the authenticated account.
@@ -113,8 +152,9 @@ class OpenCarWingsAPI:
         url = f"{self._base}{path if path.startswith('/') else '/' + path}"
         headers = kwargs.pop("headers", {}) or {}
 
-        if self._access:
-            headers["Authorization"] = f"Bearer {self._access}"
+        sent_access = self._access
+        if sent_access:
+            headers["Authorization"] = f"Bearer {sent_access}"
 
         try:
             resp = await self._session.request(method, url, headers=headers, **kwargs)
@@ -122,17 +162,22 @@ class OpenCarWingsAPI:
             _LOGGER.exception("Request to OpenCARWINGS failed")
             raise RequestError(err)
 
-        # If unauthorized, try to refresh once and retry
-        if resp.status == 401 and self._refresh:
-            _LOGGER.debug("Received 401, attempting token refresh")
+        # If unauthorized, renew tokens once and retry
+        if resp.status == 401 and (self._refresh or self._password):
+            _LOGGER.debug("Received 401, attempting token renewal")
+            if hasattr(resp, "release"):
+                resp.release()
             async with self._lock:
-                try:
-                    await self.async_refresh_token()
-                except AuthenticationError:
-                    _LOGGER.debug("Refresh failed during retry")
-                    raise
-                headers["Authorization"] = f"Bearer {self._access}"
+                # A concurrent request may have renewed tokens while we waited;
+                # refreshing again would reuse an already blacklisted token.
+                if self._access == sent_access:
+                    await self._async_renew_tokens()
+            headers["Authorization"] = f"Bearer {self._access}"
+            try:
                 resp = await self._session.request(method, url, headers=headers, **kwargs)
+            except Exception as err:  # pragma: no cover - network error
+                _LOGGER.exception("Request to OpenCARWINGS failed")
+                raise RequestError(err)
 
         return resp
 

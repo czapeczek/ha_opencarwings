@@ -53,6 +53,7 @@ class OpenCARWINGSConfigFlow(config_entries.ConfigFlow, domain="ha_opencarwings"
                     title=username,
                     data={
                         "username": username,
+                        CONF_PASSWORD: password,
                         "access_token": tokens.get("access"),
                         "refresh_token": tokens.get("refresh"),
                         # persist initial scan interval choice
@@ -85,6 +86,48 @@ class OpenCARWINGSConfigFlow(config_entries.ConfigFlow, domain="ha_opencarwings"
         )
 
         return self.async_show_form(step_id="user", data_schema=data_schema, errors=errors)
+
+    async def async_step_reauth(self, entry_data):
+        """Start reauth when stored tokens and credentials are rejected."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input=None):
+        """Ask for credentials again and update the existing entry."""
+        errors = {}
+        entry = self._get_reauth_entry()
+        if user_input is not None:
+            username = user_input[CONF_USERNAME]
+            password = user_input[CONF_PASSWORD]
+            api_base = entry.options.get("api_base_url", entry.data.get("api_base_url", DEFAULT_API_BASE_URL))
+
+            client = OpenCarWingsAPI(self.hass, base_url=api_base)
+            try:
+                tokens = await client.async_obtain_token(username, password)
+            except AuthenticationError:
+                errors["base"] = "auth"
+            except Exception:  # pragma: no cover - fallback
+                errors["base"] = "unknown"
+            else:
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data_updates={
+                        "username": username,
+                        CONF_PASSWORD: password,
+                        "access_token": tokens.get("access"),
+                        "refresh_token": tokens.get("refresh"),
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_USERNAME, default=entry.data.get("username", "")): str,
+                    vol.Required(CONF_PASSWORD): str,
+                }
+            ),
+            errors=errors,
+        )
 
 
 class OptionsFlowHandler(config_entries.OptionsFlow):

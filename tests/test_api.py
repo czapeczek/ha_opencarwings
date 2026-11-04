@@ -126,3 +126,82 @@ async def test_request_network_error(monkeypatch):
     client = api.OpenCarWingsAPI(hass=None)
     with pytest.raises(api.RequestError):
         await client.async_request("GET", "/api/car/")
+
+
+@pytest.mark.asyncio
+async def test_refresh_stores_rotated_refresh_token(monkeypatch):
+    mock_session = MockSession()
+    mock_session.posts.append(MockResponse(200, {"access": "a2", "refresh": "r2"}))
+
+    monkeypatch.setattr(
+        "homeassistant.helpers.aiohttp_client.async_get_clientsession",
+        lambda hass: mock_session,
+    )
+
+    stored = []
+    client = api.OpenCarWingsAPI(hass=None)
+    client._refresh = "r1"
+    client.set_token_callback(lambda access, refresh: stored.append((access, refresh)))
+    await client.async_refresh_token()
+
+    assert client._refresh == "r2"
+    assert stored == [("a2", "r2")]
+
+
+@pytest.mark.asyncio
+async def test_request_falls_back_to_login_when_refresh_rejected(monkeypatch):
+    mock_session = MockSession()
+    mock_session.requests.append(MockResponse(401, {}, "unauth"))
+    mock_session.requests.append(MockResponse(200, {"ok": True}))
+    # refresh rejected (blacklisted), then login with stored credentials
+    mock_session.posts.append(MockResponse(401, {}, "Token is blacklisted"))
+    mock_session.posts.append(MockResponse(200, {"access": "a4", "refresh": "r4"}))
+
+    monkeypatch.setattr(
+        "homeassistant.helpers.aiohttp_client.async_get_clientsession",
+        lambda hass: mock_session,
+    )
+
+    client = api.OpenCarWingsAPI(hass=None)
+    client.set_tokens("old", "r1")
+    client.set_credentials("user", "pass")
+
+    resp = await client.async_request("GET", "/api/car/")
+    assert resp.status == 200
+    assert client._access == "a4"
+    assert client._refresh == "r4"
+
+
+@pytest.mark.asyncio
+async def test_request_raises_auth_error_without_credentials(monkeypatch):
+    mock_session = MockSession()
+    mock_session.requests.append(MockResponse(401, {}, "unauth"))
+    mock_session.posts.append(MockResponse(401, {}, "Token is blacklisted"))
+
+    monkeypatch.setattr(
+        "homeassistant.helpers.aiohttp_client.async_get_clientsession",
+        lambda hass: mock_session,
+    )
+
+    client = api.OpenCarWingsAPI(hass=None)
+    client.set_tokens("old", "r1")
+
+    with pytest.raises(api.AuthenticationError):
+        await client.async_request("GET", "/api/car/")
+
+
+@pytest.mark.asyncio
+async def test_server_error_on_refresh_is_not_auth_error(monkeypatch):
+    mock_session = MockSession()
+    mock_session.posts.append(MockResponse(503, {}, "unavailable"))
+
+    monkeypatch.setattr(
+        "homeassistant.helpers.aiohttp_client.async_get_clientsession",
+        lambda hass: mock_session,
+    )
+
+    client = api.OpenCarWingsAPI(hass=None)
+    client._refresh = "r1"
+
+    with pytest.raises(api.RequestError):
+        await client.async_refresh_token()

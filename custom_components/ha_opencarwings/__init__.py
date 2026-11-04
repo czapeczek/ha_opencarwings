@@ -5,7 +5,9 @@ from datetime import timedelta
 import asyncio
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_PASSWORD
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import OpenCarWingsAPI, AuthenticationError, RequestError
@@ -28,6 +30,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     base_url = opts.get("api_base_url", entry.data.get("api_base_url"))
     client = OpenCarWingsAPI(hass, base_url=base_url) if base_url else OpenCarWingsAPI(hass)
     client.set_tokens(entry.data.get("access_token"), entry.data.get("refresh_token"))
+
+    def _store_tokens(access: str | None, refresh: str | None) -> None:
+        """Persist renewed tokens so they survive a Home Assistant restart."""
+        hass.config_entries.async_update_entry(
+            entry,
+            data={**entry.data, "access_token": access, "refresh_token": refresh},
+        )
+
+    # Guarded like other client helpers so mock clients used in tests still work
+    if hasattr(client, "set_credentials"):
+        client.set_credentials(entry.data.get("username"), entry.data.get(CONF_PASSWORD))
+    if hasattr(client, "set_token_callback"):
+        client.set_token_callback(_store_tokens)
 
     # Ensure base_url is accessible on the client instance (helps tests and some clients)
     if base_url:
@@ -120,9 +135,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             raise RuntimeError("Client has no method to fetch cars")
 
-        except AuthenticationError:
-            # Let Home Assistant handle reauth via existing logic
-            raise
+        except AuthenticationError as err:
+            # Tokens and stored credentials rejected: Home Assistant starts reauth
+            raise ConfigEntryAuthFailed(err) from err
         except RequestError as err:
             raise UpdateFailed(err)
         except Exception as err:  # pragma: no cover - network or unexpected
@@ -146,10 +161,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         await coordinator.async_config_entry_first_refresh()
         hass.data[DOMAIN][entry.entry_id]["cars"] = coordinator.data or []
-    except AuthenticationError:
-        _LOGGER.warning("Tokens invalid or expired; requesting reauthentication")
-        hass.config_entries.async_start_reauth(entry.entry_id)
-        return False
+    except ConfigEntryAuthFailed:
+        # Propagate so Home Assistant starts the reauth flow
+        raise
     except Exception:
         # Log the error but continue setup so platforms can use cached data if available
         _LOGGER.exception("Error while initializing OpenCARWINGS coordinator during setup")
