@@ -4,7 +4,7 @@ from typing import Any
 from homeassistant.components.device_tracker import SourceType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 try:
-    from homeassistant.components.device_tracker.config_entry import TrackerEntity
+    from homeassistant.components.device_tracker import TrackerEntity
 except Exception:  # pragma: no cover - tests running without hass stubs
     class TrackerEntity:  # type: ignore
         """Fallback base class used when TrackerEntity cannot be imported in tests."""
@@ -101,15 +101,6 @@ class CarTracker(CoordinatorEntity, TrackerEntity):
         return lat is not None and lon is not None
 
     @property
-    def location_name(self) -> str | None:
-        # opcjonalnie: pokaże nazwę strefy / opis
-        car = self._get_car()
-        loc = car.get("last_location") or car.get("location")
-        if isinstance(loc, dict):
-            return loc.get("name") or loc.get("address")
-        return None
-
-    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         # Expose VIN and basic car data so it's visible on the entity, and
         # provide the raw last location under a single key for callers that
@@ -123,6 +114,9 @@ class CarTracker(CoordinatorEntity, TrackerEntity):
         elif isinstance(car.get("last_location"), list) and len(car.get("last_location")) > 0:
             raw_loc = car.get("last_location")[0]
             raw_src = "last_location"
+        elif isinstance(car.get("location"), dict):
+            raw_loc = car.get("location")
+            raw_src = "location"
         elif isinstance(car.get("ev_info"), dict):
             raw_loc = car.get("ev_info", {}).get("last_location")
             if raw_loc is not None:

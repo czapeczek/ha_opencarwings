@@ -16,6 +16,7 @@ DEFAULT_ABRP_API_KEY = "32b2162f-9599-4647-8139-66e9f9528370"
 ABRP_V1_TLM_URL = "https://api.iternio.com/1/tlm/send"
 ABRP_HEARTBEAT_INTERVAL_SECONDS = 30
 ABRP_HEARTBEAT_SECONDS = 25  # Allow slight timer jitter for 30s heartbeat
+ABRP_ACTIVE_TCU_REFRESH_SECONDS = 60  # Request fresh TCU data every 60s while driving/charging
 
 
 @dataclass
@@ -59,6 +60,17 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2.0) ** 2
     )
     return 2.0 * r_earth * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+
+
+def is_car_active(car_data: Dict[str, Any]) -> bool:
+    """Return True only when the car is ON (running/driving) or actively charging."""
+    ev_info = car_data.get("ev_info") or {}
+    if not isinstance(ev_info, dict):
+        return False
+    car_running = bool(ev_info.get("car_running", False))
+    is_charging = bool(ev_info.get("charging", False))
+    car_gear = ev_info.get("car_gear", 0)
+    return car_running or is_charging or (car_gear not in (0, None, "0"))
 
 
 def estimate_carwings_charging_power_kw(ev_info: Dict[str, Any]) -> Optional[float]:
@@ -324,8 +336,10 @@ class ABRPBridge:
 
         self._prev_states: Dict[str, SnapshotState] = {}
         self._last_sent_times: Dict[str, float] = {}
+        self._last_tcu_refresh_times: Dict[str, float] = {}
         self._last_car_data: Dict[str, Dict[str, Any]] = {}
         self._last_trips: Dict[str, Optional[Dict[str, Any]]] = {}
+        self._was_active: Dict[str, bool] = {}
 
     async def _async_fetch_latest_trip(self, vin: str) -> Optional[Dict[str, Any]]:
         """Fetch latest probe trip for extra outside/battery temperatures."""
@@ -357,7 +371,15 @@ class ABRPBridge:
         }
         headers = {"Authorization": f"APIKEY {self.api_key}"}
 
-        resp = await self._session.post(ABRP_V1_TLM_URL, headers=headers, params=params)
+        kwargs: Dict[str, Any] = {"headers": headers, "params": params}
+        try:
+            from aiohttp import ClientTimeout
+
+            kwargs["timeout"] = ClientTimeout(total=10)
+        except Exception:
+            pass
+
+        resp = await self._session.post(ABRP_V1_TLM_URL, **kwargs)
         if resp.status not in (200, 201):
             text = await resp.text()
             _LOGGER.warning("ABRP telemetry push failed (%s): %s", resp.status, text)
@@ -382,6 +404,16 @@ class ABRPBridge:
                 continue
 
             try:
+                self._last_car_data[vin] = car_data
+                active = is_car_active(car_data)
+                was_active = self._was_active.get(vin, False)
+                self._was_active[vin] = active
+
+                # Only send telemetry to ABRP when the car is ON / charging,
+                # or once when transitioning from active -> parked/off.
+                if not active and not was_active:
+                    continue
+
                 prev_state = self._prev_states.get(vin)
                 ev_info = car_data.get("ev_info") or {}
                 ev_updated_iso = ev_info.get("last_updated") or car_data.get("last_connection")
@@ -401,13 +433,12 @@ class ABRPBridge:
                     latest_trip=self._last_trips.get(vin),
                 )
 
-                self._last_car_data[vin] = car_data
-
                 now = time.time()
                 last_sent = self._last_sent_times.get(vin, 0.0)
                 heartbeat_due = (now - last_sent) >= ABRP_HEARTBEAT_SECONDS
+                just_stopped = (not active) and was_active
 
-                if is_new_reading or heartbeat_due or force_heartbeat:
+                if is_new_reading or heartbeat_due or force_heartbeat or just_stopped:
                     resp = await self.async_send_telemetry(tlm)
                     if resp is not None:
                         self._last_sent_times[vin] = now
@@ -424,19 +455,15 @@ class ABRPBridge:
                 _LOGGER.warning("Error sending telemetry to ABRP for %s: %s", vin, err)
 
     async def async_heartbeat(self, coordinator: Any = None) -> None:
-        """Periodic 30-second callback to keep ABRP Live Data online."""
+        """Periodic 30-second callback while ABRP is enabled.
+
+        When the car is ON (driving) or charging:
+        - Requests an active TCU refresh (command_type=1) every 60 seconds.
+        - Refreshes the Home Assistant coordinator and pushes telemetry to ABRP every 30 seconds.
+        When the car is OFF and not charging:
+        - Does nothing.
+        """
         if not self.user_token:
-            return
-
-        now = time.time()
-        any_due = False
-        for vin in self._last_car_data:
-            last_sent = self._last_sent_times.get(vin, 0.0)
-            if (now - last_sent) >= ABRP_HEARTBEAT_SECONDS:
-                any_due = True
-                break
-
-        if not any_due and self._last_car_data:
             return
 
         cars = (
@@ -445,6 +472,49 @@ class ABRPBridge:
             else None
         ) or list(self._last_car_data.values())
 
-        if cars:
-            await self.async_process_cars(list(cars), force_heartbeat=True)
+        if not cars or not isinstance(cars, list):
+            return
+
+        now = time.time()
+        active_cars = []
+        for car_data in cars:
+            if not isinstance(car_data, dict):
+                continue
+            vin = str(car_data.get("vin") or "").strip()
+            if not vin or not is_car_active(car_data):
+                continue
+            active_cars.append(car_data)
+
+            # Request a minute-by-minute TCU refresh from the car while active
+            last_tcu_req = self._last_tcu_refresh_times.get(vin, 0.0)
+            if (
+                not car_data.get("command_requested", False)
+                and (now - last_tcu_req) >= ABRP_ACTIVE_TCU_REFRESH_SECONDS
+                and hasattr(self.ocw_client, "async_request_car_refresh")
+            ):
+                try:
+                    await self.ocw_client.async_request_car_refresh(vin)
+                    self._last_tcu_refresh_times[vin] = now
+                    _LOGGER.debug("Requested 1-min active TCU refresh (command_type=1) for %s", vin)
+                except Exception as err:
+                    _LOGGER.debug("Could not request active TCU refresh for %s: %s", vin, err)
+
+        if not active_cars:
+            return
+
+        # Refresh coordinator so both HA entities and ABRP receive the latest OpenCARWINGS data
+        if coordinator is not None and hasattr(coordinator, "async_request_refresh"):
+            try:
+                await coordinator.async_request_refresh()
+            except Exception as err:
+                _LOGGER.debug("Coordinator refresh during ABRP heartbeat failed: %s", err)
+
+        # Ensure ABRP receives a heartbeat at least every 30s even if car reading timestamp hasn't changed yet
+        now_after = time.time()
+        due_cars = [
+            c for c in active_cars
+            if (now_after - self._last_sent_times.get(str(c.get("vin") or "").strip(), 0.0)) >= ABRP_HEARTBEAT_SECONDS
+        ]
+        if due_cars:
+            await self.async_process_cars(due_cars, force_heartbeat=True)
 

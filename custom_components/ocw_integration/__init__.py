@@ -162,6 +162,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                 # Track the last successful update time for CarLastRequestedSensor
                 coordinator.last_update_time = datetime.now(timezone.utc)
+                hass.data[DOMAIN][entry.entry_id]["cars"] = cars
 
                 if abrp_bridge is not None:
                     try:
@@ -182,6 +183,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _LOGGER.debug("Could not enrich car list with details: %s", err)
 
                 coordinator.last_update_time = datetime.now(timezone.utc)
+                hass.data[DOMAIN][entry.entry_id]["cars"] = result
 
                 if abrp_bridge is not None:
                     try:
@@ -230,7 +232,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Don't abort setup; proceed to forward platforms so entity platforms can be set up
         pass
 
-    # Schedule 30-second ABRP heartbeat timer if ABRP bridge is enabled
+    # Schedule 30-second ABRP & active-polling timer ONLY when ABRP token is configured.
+    # Without an ABRP token, updates follow the standard Scan Interval and OpenCARWINGS schedule.
     if abrp_bridge is not None:
         try:
             from homeassistant.helpers.event import async_track_time_interval

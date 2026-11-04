@@ -90,7 +90,7 @@ Configuration is managed entirely through the Home Assistant UI (and can be upda
 
 - **🔑 API Key** *(Required)*: Your personal API token from the [OpenCARWINGS Portal](https://opencarwings.viaaq.eu) → *Account Settings* → *API Token* (copy the full string in the format `Token xxxxxxxxxxxxxx`).
 - **🔒 Command PIN** *(Optional)*: Required only for security-sensitive commands (Doors Lock/Unlock and Remote Start/Stop).
-- **🗺️ ABRP User Token** *(Optional)*: Your generic telemetry token from [A Better Routeplanner](https://abetterrouteplanner.com/) (*Car Settings → Live Data → Generic*). When provided, the integration automatically forwards live vehicle telemetry (SoC, SoH, SoE, degraded usable capacity, power, speed, temperatures, odometer, TPMS, and GPS) to ABRP on every update plus a 30-second keepalive heartbeat.
+- **🗺️ ABRP User Token** *(Optional)*: Your generic telemetry token from [A Better Routeplanner](https://abetterrouteplanner.com/) (*Car Settings → Live Data → Generic*). When provided and the vehicle is **ON (driving) or charging**, the integration requests 1-minute updates from the vehicle and forwards live telemetry (SoC, SoH, SoE, degraded usable capacity, power, speed, temperatures, odometer, TPMS, and GPS) to ABRP every 30 seconds, stopping automatically once the vehicle is parked and off. When left blank, updates follow your configured Scan Interval and OpenCARWINGS server schedule.
 - **⏱️ Scan Interval** *(Default: `15 minutes`)*: Cloud polling interval (`1 min`, `5 min`, `10 min`, `15 min`, `30 min`, `1 h`, `3 h`, `6 h`, `12 h`, or `1 day`).
 - **🌐 API Base URL** *(Default: `https://opencarwings.viaaq.eu`)*: Base URL of your OpenCARWINGS server instance.
 

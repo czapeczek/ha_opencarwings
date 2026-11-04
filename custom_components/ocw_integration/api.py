@@ -9,9 +9,10 @@ import logging
 from typing import Optional
 
 try:
-    from aiohttp import ClientResponse
+    from aiohttp import ClientResponse, ClientTimeout
 except Exception:  # pragma: no cover - aiohttp not available in tests
     ClientResponse = object
+    ClientTimeout = None
 
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -153,6 +154,9 @@ class OpenCarWingsAPI:
                     headers["Authorization"] = f"Token {self._access}"
                 else:
                     headers["Authorization"] = f"Bearer {self._access}"
+
+        if ClientTimeout is not None and "timeout" not in kwargs:
+            kwargs["timeout"] = ClientTimeout(total=20)
 
         try:
             resp = await self._session.request(method, url, headers=headers, **kwargs)

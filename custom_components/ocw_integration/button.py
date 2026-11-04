@@ -96,6 +96,25 @@ class CommandButton(ButtonEntity):
         }
         self.async_write_ha_state()
 
+    def _get_car_timestamp(self, coordinator) -> str | None:
+        cars = getattr(coordinator, 'data', None) or []
+        if isinstance(cars, list):
+            for car in cars:
+                if isinstance(car, dict) and car.get('vin') == self._vin:
+                    ev = car.get('ev_info') or {}
+                    return ev.get('last_updated') or car.get('last_connection')
+        return None
+
+    async def _async_follow_up_refresh(self, coordinator, initial_ts: str | None) -> None:
+        for _ in range(12):
+            await asyncio.sleep(5)
+            try:
+                await coordinator.async_request_refresh()
+            except Exception:
+                return
+            if self._get_car_timestamp(coordinator) != initial_ts:
+                return
+
     def _command_attributes(self) -> dict[str, Any]:
         response = (
             self.hass.data.get(DOMAIN, {})
@@ -157,15 +176,26 @@ class CarRefreshButton(CommandButton):
         if not coordinator:
             return
 
+        initial_ts = self._get_car_timestamp(coordinator)
+        updated = False
         for attempt in range(5):
             try:
                 await coordinator.async_request_refresh()
             except Exception:  # pragma: no cover - coordinator failure
-                _LOGGER.exception("Failed to refresh data after requesting car refresh for %s", self._vin)
+                _LOGGER.exception('Failed to refresh data after requesting car refresh for %s', self._vin)
                 raise
+
+            if self._get_car_timestamp(coordinator) != initial_ts:
+                updated = True
+                break
 
             if attempt < 4:
                 await asyncio.sleep(2)
+
+        if not updated and hasattr(self.hass, 'async_create_task'):
+            self.hass.async_create_task(
+                self._async_follow_up_refresh(coordinator, initial_ts)
+            )
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
