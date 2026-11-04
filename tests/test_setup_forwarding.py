@@ -1,56 +1,23 @@
-import pytest
-import asyncio
-
 import importlib
+
+import pytest
+
+from tests.fakes import FakeConfigEntries, make_hass
+
 module = importlib.import_module("custom_components.ha_opencarwings")
 
 
 @pytest.mark.asyncio
 async def test_forward_entry_setups_and_unload(monkeypatch):
-    calls = {}
+    monkeypatch.setattr("custom_components.ha_opencarwings.api.get_client", lambda *a: object())
 
-    async def async_forward_entry_setups(self, entry, platforms):
-        calls['forward'] = (entry, platforms)
+    config_entries = FakeConfigEntries()
+    hass = make_hass(config_entries=config_entries)
+    entry = type("E", (), {"entry_id": "e1", "data": {"api_token": "t"}, "title": "t"})()
 
-    async def async_unload_platforms(self, entry, platforms):
-        calls['unload'] = (entry, platforms)
-        return True
+    assert await module.async_setup_entry(hass, entry) is True
+    assert config_entries.forwarded[1] == module.PLATFORMS
 
-    # hass stub with config_entries having the methods
-    config_entries = type("C", (), {
-        "async_forward_entry_setups": async_forward_entry_setups,
-        "async_unload_platforms": async_unload_platforms,
-        "async_start_reauth": lambda x: None,
-    })()
-
-    hass = type("H", (), {"data": {}, "config_entries": config_entries})()
-
-    entry = type("E", (), {"entry_id": "e1", "data": {"access_token": "a", "refresh_token": "r"}, "title": "t"})()
-
-    # Monkeypatch the OpenCarWingsAPI to avoid real calls
-    class MockClient:
-        def __init__(self, hass, base_url=None):
-            self.base_url = base_url
-
-        async def async_request(self, method, path, **kwargs):
-            class R: status = 200
-            async def json():
-                return []
-            R.json = json
-            return R
-
-        def set_tokens(self, access, refresh):
-            pass
-
-    monkeypatch.setattr(module, "OpenCarWingsAPI", MockClient)
-
-    ok = await module.async_setup_entry(hass, entry)
-    assert ok is True
-    assert 'forward' in calls
-    assert calls['forward'][1] == module.PLATFORMS
-
-    # Now unload
-    res = await module.async_unload_entry(hass, entry)
-    assert res is True
-    assert 'unload' in calls
-    assert calls['unload'][1] == module.PLATFORMS
+    assert await module.async_unload_entry(hass, entry) is True
+    assert config_entries.unloaded[1] == module.PLATFORMS
+    assert "e1" not in hass.data["ha_opencarwings"]

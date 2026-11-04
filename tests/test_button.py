@@ -1,344 +1,116 @@
 import pytest
 
 from custom_components.ha_opencarwings import button as button_mod
+from custom_components.ha_opencarwings.util import CarData
+from tests.helpers import make_car
+
+
+def _hass(**entry_data):
+    return type("H", (), {"data": {"ha_opencarwings": {"e1": entry_data}}})()
+
+
+async def _setup(hass):
+    added = []
+    entry = type("E", (), {"entry_id": "e1"})()
+    await button_mod.async_setup_entry(hass, entry, added.extend)
+    return added
+
+
+def _by_prefix(added, prefix):
+    return next(e for e in added if getattr(e, "unique_id", "").startswith(prefix))
 
 
 @pytest.mark.asyncio
 async def test_refresh_button_created_and_has_unique_id():
-    coord = type("C", (), {"data": None})()
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"coordinator": coord}}}})()
-
-    added = []
-
-    def add(entities):
-        added.extend(entities)
-
-    entry = type("E", (), {"entry_id": "e1"})()
-    await button_mod.async_setup_entry(hass, entry, add)
+    added = await _setup(_hass(coordinator=type("C", (), {"data": None})()))
 
     assert len(added) == 1
-    btn = added[0]
-    assert btn.unique_id == "ha_opencarwings_refresh_e1"
+    assert added[0].unique_id == "ha_opencarwings_refresh_e1"
 
 
 @pytest.mark.asyncio
-async def test_refresh_button_triggers_coordinator_refresh(monkeypatch):
+async def test_refresh_button_triggers_coordinator_refresh():
     class FakeCoordinator:
-        def __init__(self):
-            self.called = False
+        called = False
 
         async def async_request_refresh(self):
             self.called = True
 
     coord = FakeCoordinator()
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"coordinator": coord}}}})()
-
-    added = []
-
-    def add(entities):
-        added.extend(entities)
-
-    entry = type("E", (), {"entry_id": "e1"})()
-    await button_mod.async_setup_entry(hass, entry, add)
-
-    btn = added[0]
-    await btn.async_press()
+    added = await _setup(_hass(coordinator=coord))
+    await added[0].async_press()
 
     assert coord.called is True
 
 
 @pytest.mark.asyncio
-async def test_car_refresh_button_created_and_has_unique_id():
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"coordinator": None, "cars": [{"vin": "VIN1", "model_name": "M1"}]}}}})()
+async def test_per_car_buttons_created():
+    added = await _setup(_hass(coordinator=None, cars=[make_car("VIN1")]))
 
-    added = []
-
-    def add(entities):
-        added.extend(entities)
-
-    entry = type("E", (), {"entry_id": "e1"})()
-    await button_mod.async_setup_entry(hass, entry, add)
-
-    # there should be three buttons: per-entry + per-car refresh + per-car charge start
-    assert len(added) == 3
-
-    # find the car button
-    car_btn = None
-    for ent in added:
-        if getattr(ent, "unique_id", "").startswith("ha_opencarwings_car_refresh_"):
-            car_btn = ent
-            break
-
-    assert car_btn is not None
-    assert car_btn.unique_id == "ha_opencarwings_car_refresh_VIN1"
+    # per-entry refresh button + 11 per-car command buttons
+    assert len(added) == 12
+    assert _by_prefix(added, "ha_opencarwings_car_refresh_").unique_id == "ha_opencarwings_car_refresh_VIN1"
+    assert len({e.unique_id for e in added}) == 12
 
 
 @pytest.mark.asyncio
-async def test_car_refresh_button_has_friendly_name():
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"coordinator": None, "cars": [{"vin": "VIN1", "model_name": "M1", "nickname": "MyCar"}]}}}})()
+async def test_car_buttons_not_created_without_vin():
+    added = await _setup(_hass(coordinator=None, cars=[CarData(vin="")]))
 
-    added = []
-
-    def add(entities):
-        added.extend(entities)
-
-    entry = type("E", (), {"entry_id": "e1"})()
-    await button_mod.async_setup_entry(hass, entry, add)
-
-    # find car button
-    car_btn = None
-    for ent in added:
-        if getattr(ent, "unique_id", "").startswith("ha_opencarwings_car_refresh_"):
-            car_btn = ent
-            break
-
-    assert car_btn is not None
-    assert car_btn.name == "Request data refresh for MyCar"
+    assert len(added) == 1
 
 
 @pytest.mark.asyncio
-async def test_car_refresh_button_falls_back_to_model_name():
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"coordinator": None, "cars": [{"vin": "VIN1", "model_name": "M1"}]}}}})()
+async def test_car_button_names_use_nickname_then_vin():
+    added = await _setup(_hass(coordinator=None, cars=[make_car("VIN1", nickname="MyCar")]))
+    assert _by_prefix(added, "ha_opencarwings_car_refresh_").name == "Request data refresh for MyCar"
+    assert _by_prefix(added, "ha_opencarwings_car_chargestart_").name == "Charge start for MyCar"
 
-    added = []
-
-    def add(entities):
-        added.extend(entities)
-
-    entry = type("E", (), {"entry_id": "e1"})()
-    await button_mod.async_setup_entry(hass, entry, add)
-
-    # find car button
-    car_btn = None
-    for ent in added:
-        if getattr(ent, "unique_id", "").startswith("ha_opencarwings_car_refresh_"):
-            car_btn = ent
-            break
-
-    assert car_btn is not None
-    assert car_btn.name == "Request data refresh for M1"
+    added = await _setup(_hass(coordinator=None, cars=[make_car("VIN1")]))
+    assert _by_prefix(added, "ha_opencarwings_car_refresh_").name == "Request data refresh for VIN1"
 
 
 @pytest.mark.asyncio
-async def test_car_refresh_button_calls_api(monkeypatch):
-    calls = []
+@pytest.mark.parametrize(
+    "unique_id,command_type",
+    [
+        ("ha_opencarwings_car_refresh_VIN1", 1),
+        ("ha_opencarwings_car_chargestart_VIN1", 2),
+        ("ha_opencarwings_car_chargestart80_VIN1", 6),
+        ("ha_opencarwings_car_doorlock_VIN1", 7),
+        ("ha_opencarwings_car_doorunlock_VIN1", 8),
+        ("ha_opencarwings_car_horn_VIN1", 9),
+        ("ha_opencarwings_car_lights_VIN1", 10),
+        ("ha_opencarwings_car_horn_lights_VIN1", 11),
+        ("ha_opencarwings_car_stop_horn_lights_VIN1", 12),
+        ("ha_opencarwings_car_remote_start_VIN1", 13),
+        ("ha_opencarwings_car_remote_stop_VIN1", 14),
+    ],
+)
+async def test_car_button_sends_command(fake_cars_api, unique_id, command_type):
+    added = await _setup(_hass(client=object(), coordinator=None, cars=[make_car("VIN1")]))
+    button = next(e for e in added if getattr(e, "unique_id", None) == unique_id)
 
-    class MockClient:
-        def __init__(self, hass):
-            self.hass = hass
+    await button.async_press()
 
-        async def async_request(self, method, path, **kwargs):
-            calls.append((method, path, kwargs))
-            class R: pass
-            return R()
-
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"client": MockClient(None), "cars": [{"vin": "VIN1", "model_name": "M1"}]}}}})()
-
-    from custom_components.ha_opencarwings import button as button_mod
-    entry = type("E", (), {"entry_id": "e1"})()
-
-    added = []
-    def add(entities):
-        added.extend(entities)
-
-    await button_mod.async_setup_entry(hass, entry, add)
-
-    # find car button
-    car_btn = None
-    for ent in added:
-        if getattr(ent, "unique_id", "").startswith("ha_opencarwings_car_refresh_"):
-            car_btn = ent
-            break
-
-    assert car_btn is not None
-
-    await car_btn.async_press()
-
-    assert calls[0][0] == "POST"
-    assert "/api/command/VIN1/" in calls[0][1]
-    assert calls[0][2]["json"]["command_type"] == 1
+    assert [(vin, req.command_type) for vin, req in fake_cars_api.commands] == [("VIN1", command_type)]
 
 
 @pytest.mark.asyncio
-async def test_car_refresh_button_triggers_coordinator_refresh(monkeypatch):
-    class FakeCoordinator:
-        def __init__(self):
-            self.called = False
+async def test_command_button_availability_follows_supported_commands():
+    added = await _setup(_hass(coordinator=None, cars=[make_car("VIN1", supported_commands=[1, 2])]))
 
-        async def async_request_refresh(self):
-            self.called = True
-
-    calls = []
-
-    class MockClient:
-        def __init__(self, hass):
-            self.hass = hass
-
-        async def async_request(self, method, path, **kwargs):
-            calls.append((method, path, kwargs))
-            class R:  # pragma: no cover - simple stub response
-                pass
-            return R()
-
-    coord = FakeCoordinator()
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"client": MockClient(None), "coordinator": coord, "cars": [{"vin": "VIN1", "model_name": "M1"}]}}}})()
-
-    from custom_components.ha_opencarwings import button as button_mod
-    entry = type("E", (), {"entry_id": "e1"})()
-
-    added = []
-    def add(entities):
-        added.extend(entities)
-
-    await button_mod.async_setup_entry(hass, entry, add)
-
-    # find car button
-    car_btn = None
-    for ent in added:
-        if getattr(ent, "unique_id", "").startswith("ha_opencarwings_car_refresh_"):
-            car_btn = ent
-            break
-
-    assert car_btn is not None
-
-    await car_btn.async_press()
-
-    assert calls[0][0] == "POST"
-    assert "/api/command/VIN1/" in calls[0][1]
-    assert calls[0][2]["json"]["command_type"] == 1
-    assert coord.called is True
+    assert _by_prefix(added, "ha_opencarwings_car_refresh_").is_available is True
+    assert _by_prefix(added, "ha_opencarwings_car_chargestart80_").is_available is False
 
 
 @pytest.mark.asyncio
-async def test_car_chargestart_button_created_and_has_unique_id():
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"coordinator": None, "cars": [{"vin": "VIN1", "model_name": "M1"}]}}}})()
+async def test_command_button_error_propagates(monkeypatch, fake_cars_api):
+    async def _fail(self, vin, request):
+        raise RuntimeError("boom")
 
-    added = []
+    monkeypatch.setattr(fake_cars_api, "api_command_create", _fail)
+    added = await _setup(_hass(client=object(), coordinator=None, cars=[make_car("VIN1")]))
 
-    def add(entities):
-        added.extend(entities)
-
-    entry = type("E", (), {"entry_id": "e1"})()
-    await button_mod.async_setup_entry(hass, entry, add)
-
-    # find charge start button
-    charge_btn = None
-    for ent in added:
-        if getattr(ent, "unique_id", "").startswith("ha_opencarwings_car_chargestart_"):
-            charge_btn = ent
-            break
-
-    assert charge_btn is not None
-    assert charge_btn.unique_id == "ha_opencarwings_car_chargestart_VIN1"
-
-
-@pytest.mark.asyncio
-async def test_car_chargestart_button_has_friendly_name():
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"coordinator": None, "cars": [{"vin": "VIN1", "model_name": "M1", "nickname": "MyCar"}]}}}})()
-
-    added = []
-
-    def add(entities):
-        added.extend(entities)
-
-    entry = type("E", (), {"entry_id": "e1"})()
-    await button_mod.async_setup_entry(hass, entry, add)
-
-    charge_btn = None
-    for ent in added:
-        if getattr(ent, "unique_id", "").startswith("ha_opencarwings_car_chargestart_"):
-            charge_btn = ent
-            break
-
-    assert charge_btn is not None
-    assert charge_btn.name == "Charge start for MyCar"
-
-
-@pytest.mark.asyncio
-async def test_car_chargestart_button_calls_api(monkeypatch):
-    calls = []
-
-    class MockClient:
-        def __init__(self, hass):
-            self.hass = hass
-
-        async def async_request(self, method, path, **kwargs):
-            calls.append((method, path, kwargs))
-            class R: pass
-            return R()
-
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"client": MockClient(None), "cars": [{"vin": "VIN1", "model_name": "M1"}]}}}})()
-
-    from custom_components.ha_opencarwings import button as button_mod
-    entry = type("E", (), {"entry_id": "e1"})()
-
-    added = []
-    def add(entities):
-        added.extend(entities)
-
-    await button_mod.async_setup_entry(hass, entry, add)
-
-    # find charge start button
-    charge_btn = None
-    for ent in added:
-        if getattr(ent, "unique_id", "").startswith("ha_opencarwings_car_chargestart_"):
-            charge_btn = ent
-            break
-
-    assert charge_btn is not None
-
-    await charge_btn.async_press()
-
-    assert calls[0][0] == "POST"
-    assert "/api/command/VIN1/" in calls[0][1]
-    assert calls[0][2]["json"]["command_type"] == 2
-
-
-@pytest.mark.asyncio
-async def test_car_chargestart_button_triggers_coordinator_refresh(monkeypatch):
-    class FakeCoordinator:
-        def __init__(self):
-            self.called = False
-
-        async def async_request_refresh(self):
-            self.called = True
-
-    calls = []
-
-    class MockClient:
-        def __init__(self, hass):
-            self.hass = hass
-
-        async def async_request(self, method, path, **kwargs):
-            calls.append((method, path, kwargs))
-            class R:  # pragma: no cover - simple stub response
-                pass
-            return R()
-
-    coord = FakeCoordinator()
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"client": MockClient(None), "coordinator": coord, "cars": [{"vin": "VIN1", "model_name": "M1"}]}}}})()
-
-    from custom_components.ha_opencarwings import button as button_mod
-    entry = type("E", (), {"entry_id": "e1"})()
-
-    added = []
-    def add(entities):
-        added.extend(entities)
-
-    await button_mod.async_setup_entry(hass, entry, add)
-
-    # find charge start button
-    charge_btn = None
-    for ent in added:
-        if getattr(ent, "unique_id", "").startswith("ha_opencarwings_car_chargestart_"):
-            charge_btn = ent
-            break
-
-    assert charge_btn is not None
-
-    await charge_btn.async_press()
-
-    assert calls[0][0] == "POST"
-    assert "/api/command/VIN1/" in calls[0][1]
-    assert calls[0][2]["json"]["command_type"] == 2
-    assert coord.called is True
+    with pytest.raises(RuntimeError):
+        await _by_prefix(added, "ha_opencarwings_car_refresh_").async_press()

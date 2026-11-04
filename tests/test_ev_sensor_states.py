@@ -1,16 +1,15 @@
 import pytest
 
 from custom_components.ha_opencarwings import sensor as sensor_mod
+from tests.helpers import make_car
 
 
 @pytest.mark.asyncio
 async def test_ev_sensor_states():
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"cars": [{
-        "vin": "VIN1",
-        "model_name": "M1",
-        "battery_level": 80,
-        "odometer": 12345,
-        "ev_info": {
+    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"cars": [make_car(
+        "VIN1",
+        odometer=12345,
+        ev_info={
             "range_acon": 120,
             "range_acoff": 140,
             "soc": 80,
@@ -26,8 +25,8 @@ async def test_ev_sensor_states():
             "full_chg_time": 30,
             "limit_chg_time": 60,
             "obc_6kw": 1,
-        }
-    }]}}}})()
+        },
+    )]}}}})()
 
     added = []
 
@@ -50,12 +49,8 @@ async def test_ev_sensor_states():
     odom = next(x for x in added if x.unique_id == "ha_opencarwings_odometer_VIN1")
     assert _val(odom) == 12345
 
-    # Also ensure a string-valued odometer is coerced to int
-    hass2 = type("H", (), {"data": {"ha_opencarwings": {"e2": {"cars": [{
-        "vin": "VIN2",
-        "model_name": "M2",
-        "odometer": "54321",
-    }]}}}})()
+    # Cars only known from the list endpoint have no odometer
+    hass2 = type("H", (), {"data": {"ha_opencarwings": {"e2": {"cars": [make_car("VIN2", detail=False)]}}}})()
 
     added2 = []
 
@@ -66,7 +61,7 @@ async def test_ev_sensor_states():
     await sensor_mod.async_setup_entry(hass2, entry2, add2)
 
     odom2 = next(x for x in added2 if x.unique_id == "ha_opencarwings_odometer_VIN2")
-    assert _val(odom2) == 54321
+    assert _val(odom2) is None
 
     eco = next(x for x in added if x.unique_id == "ha_opencarwings_eco_mode_VIN1")
     assert _val(eco) is True
@@ -95,6 +90,6 @@ async def test_ev_sensor_states():
     obc = next(x for x in added if x.unique_id == "ha_opencarwings_obc_6kw_VIN1")
     assert _val(obc) == 1
 
-    # status sensor should reflect charging first
+    # status sensor reports quick charging ahead of plain charging
     status = next(x for x in added if x.unique_id == "ha_opencarwings_status_VIN1")
-    assert _val(status) == "charging"
+    assert _val(status) == "quick_charging"

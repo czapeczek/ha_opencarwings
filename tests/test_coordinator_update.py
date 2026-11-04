@@ -1,6 +1,7 @@
 import pytest
 
 from custom_components.ha_opencarwings import sensor as sensor_mod
+from tests.helpers import make_car
 
 
 class FakeCoordinator:
@@ -26,7 +27,7 @@ class FakeCoordinator:
 @pytest.mark.asyncio
 async def test_entities_update_on_coordinator_change():
     # initial data
-    car1 = {"vin": "VIN1", "model_name": "M1", "ev_info": {"soc": 70}}
+    car1 = make_car("VIN1", ev_info={"soc": 70})
     coord = FakeCoordinator([car1])
 
     hass = type(
@@ -53,7 +54,7 @@ async def test_entities_update_on_coordinator_change():
     assert _val(soc) == 70
 
     # update coordinator data
-    car1_updated = {"vin": "VIN1", "model_name": "M1", "ev_info": {"soc": 80}}
+    car1_updated = make_car("VIN1", ev_info={"soc": 80})
     coord.data = [car1_updated]
     coord.notify()
 
@@ -66,12 +67,7 @@ async def test_odometer_present_when_full_payload_available():
     Ensure odometer is exposed when present in coordinator data
     (simulates VIN-based detail enrichment).
     """
-    car = {
-        "vin": "VIN123",
-        "model_name": "Leaf",
-        "odometer": 167504,
-        "ev_info": {"soc": 55},
-    }
+    car = make_car("VIN123", odometer=167504, ev_info={"soc": 55})
     coord = FakeCoordinator([car])
 
     hass = type(
@@ -103,11 +99,7 @@ async def test_soc_display_is_rounded_to_one_decimal():
     """
     soc_display should be rounded to 1 decimal place.
     """
-    car = {
-        "vin": "VIN1",
-        "model_name": "Leaf",
-        "ev_info": {"soc_display": 81.8043166797615},
-    }
+    car = make_car("VIN1", ev_info={"soc_display": 81.8043166797615})
     coord = FakeCoordinator([car])
 
     hass = type(

@@ -1,11 +1,13 @@
 import pytest
 
 from custom_components.ha_opencarwings import sensor as sensor_mod
+from tests.helpers import make_car
+from custom_components.ha_opencarwings.sensor import CAR_SENSORS
 
 
 @pytest.mark.asyncio
 async def test_battery_and_location_and_switch_creation(monkeypatch):
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"cars": [{"vin": "VIN1", "model_name": "M1", "battery_level": 80, "last_location": {"lat": "50.0", "lon": "20.0"}, "ev_info": {"range_acon": 120, "range_acoff": 140, "soc": 80, "plugged_in": True, "charging": False}}]}}}})()
+    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"cars": [make_car("VIN1", location={"lat": "50.0", "lon": "20.0"}, ev_info={"range_acon": 120, "range_acoff": 140, "soc": 80, "plugged_in": True, "charging": False})]}}}})()
 
     added = []
 
@@ -16,9 +18,9 @@ async def test_battery_and_location_and_switch_creation(monkeypatch):
     # set up sensors
     await sensor_mod.async_setup_entry(hass, entry, add)
 
-    # Expect CarListSensor plus EV sensors (CarSensor removed as redundant)
-    # 1 list + (range_on, range_off, soc, soc_display, charge_bars, cable, charging, charge_finish, quick_charging, ac_status, eco_mode, car_running, odometer, full_chg_time, limit_chg_time, obc_6kw, status, last_updated, last_requested, vin) = 1 + 20 = 21
-    assert len(added) == 21
+    # Expect CarListSensor plus the generic value sensors and
+    # status, last_updated, last_requested and vin for the car
+    assert len(added) == 1 + len(CAR_SENSORS) + 4
 
     # new EV sensors
     def _val(e):

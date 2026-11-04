@@ -4,6 +4,7 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 DOMAIN = "ha_opencarwings"
@@ -103,6 +104,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             coordinator.last_update_time = datetime.now(timezone.utc)
             return cars
         except ApiException as err:
+            if err.status == 401:
+                # Token rejected: Home Assistant starts the reauth flow
+                raise ConfigEntryAuthFailed(err) from err
             raise UpdateFailed(err)
         except Exception as err:  # pragma: no cover - network or unexpected
             raise UpdateFailed(err)
@@ -125,10 +129,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         await coordinator.async_config_entry_first_refresh()
         hass.data[DOMAIN][entry.entry_id]["cars"] = coordinator.data or []
-    except ApiException as err:
-        _LOGGER.error(err)
-        hass.config_entries.async_start_reauth(entry.entry_id)
-        return False
+    except ConfigEntryAuthFailed:
+        # Propagate so Home Assistant starts the reauth flow
+        raise
     except Exception:
         # Log the error but continue setup so platforms can use cached data if available
         _LOGGER.exception("Error while initializing OpenCARWINGS coordinator during setup")

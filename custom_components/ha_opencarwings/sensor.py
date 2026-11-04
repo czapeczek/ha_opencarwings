@@ -366,13 +366,20 @@ class CarLastUpdatedSensor(OpenCarwingsCarEntity, SensorEntity):
 
     @property
     def native_value(self) -> str:
-        car = self._get_car_dict()
-        ev = car.get("ev_info") or {}
-        loc = car.get("location") or {}
-        ts = ev.get("last_updated") or loc.get("last_updated") or car.get("last_connection")
-        parsed = _parse_ts(ts) if isinstance(ts, str) else None
-        if parsed:
-            return _format_dt(parsed) or parsed.isoformat()
+        # NOTE: last_updated / last_connection are read-only API fields, which the
+        # generated models omit from to_dict(), so read them from the attributes.
+        car = self._get_car().get_latest_car()
+        ev = getattr(car, "ev_info", None)
+        loc = getattr(car, "location", None)
+        ts = (
+            getattr(ev, "last_updated", None)
+            or getattr(loc, "last_updated", None)
+            or getattr(car, "last_connection", None)
+        )
+        if isinstance(ts, str):
+            ts = _parse_ts(ts)
+        if isinstance(ts, datetime):
+            return _format_dt(ts) or ts.isoformat()
         return "unknown"
 
 

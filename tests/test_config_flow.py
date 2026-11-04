@@ -1,51 +1,86 @@
 import pytest
 
-from custom_components.ha_opencarwings.config_flow import OpenCARWINGSConfigFlow
+from opencarwings_client import ApiException
+
 from custom_components.ha_opencarwings import config_flow as cfg
+from custom_components.ha_opencarwings.config_flow import OpenCARWINGSConfigFlow
+from tests.fakes import make_hass
 
 
-class MockClient:
-    def __init__(self, hass=None, base_url=None):
-        self.base_url = base_url
+class FakeClient:
+    async def __aenter__(self):
+        return self
 
-    async def async_obtain_token(self, username, password):
-        if username == "good":
-            return {"access": "ax", "refresh": "rx"}
-        raise Exception("auth")
+    async def __aexit__(self, *exc):
+        return False
+
+
+class FakeAccountApi:
+    error = None
+
+    def __init__(self, client):
+        pass
+
+    async def account_detail_list(self):
+        if type(self).error:
+            raise type(self).error
+        return type("Account", (), {"username": "alice"})()
+
+
+@pytest.fixture(autouse=True)
+def _patch(monkeypatch):
+    FakeAccountApi.error = None
+    monkeypatch.setattr(cfg, "get_client", lambda hass, base, token: FakeClient())
+    monkeypatch.setattr(cfg.opencarwings_client, "AccountApi", FakeAccountApi)
+
+
+def _flow():
+    flow = OpenCARWINGSConfigFlow()
+    flow.hass = make_hass()
+    return flow
 
 
 @pytest.mark.asyncio
-async def test_config_flow_success(monkeypatch):
-    monkeypatch.setattr(cfg, "OpenCarWingsAPI", MockClient)
-
-    flow = OpenCARWINGSConfigFlow()
-    result = await flow.async_step_user({"username": "good", "password": "p", "api_base_url": "https://custom.example"})
+async def test_config_flow_success():
+    result = await _flow().async_step_user({"token": "tok", "api_base_url": "https://custom.example"})
 
     assert result["type"] == "create_entry"
-    assert result["data"]["username"] == "good"
-    assert result["data"]["access_token"] == "ax"
+    assert result["title"] == "alice"
+    assert result["data"]["api_token"] == "tok"
     assert result["data"]["api_base_url"] == "https://custom.example"
 
 
 @pytest.mark.asyncio
-async def test_config_flow_scan_interval_selected(monkeypatch):
-    monkeypatch.setattr(cfg, "OpenCarWingsAPI", MockClient)
-
-    flow = OpenCARWINGSConfigFlow()
-    # provide explicit scan_interval and ensure it's persisted
-    result = await flow.async_step_user({"username": "good", "password": "p", "scan_interval": 1})
+async def test_config_flow_scan_interval_selected():
+    result = await _flow().async_step_user({"token": "tok", "scan_interval": 1})
 
     assert result["type"] == "create_entry"
     assert result["data"]["scan_interval"] == 1
 
 
 @pytest.mark.asyncio
-async def test_config_flow_auth_failure(monkeypatch):
-    monkeypatch.setattr(cfg, "OpenCarWingsAPI", MockClient)
+async def test_config_flow_shows_form_without_input():
+    result = await _flow().async_step_user()
 
-    flow = OpenCARWINGSConfigFlow()
-    result = await flow.async_step_user({"username": "bad", "password": "p"})
-
-    # On auth failure, the form is shown with errors
     assert result["type"] == "form"
-    assert "base" in result.get("errors", {})
+    assert result["errors"] == {}
+
+
+@pytest.mark.asyncio
+async def test_config_flow_auth_failure():
+    FakeAccountApi.error = ApiException(status=401, reason="Unauthorized")
+
+    result = await _flow().async_step_user({"token": "bad"})
+
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "auth"}
+
+
+@pytest.mark.asyncio
+async def test_config_flow_unexpected_error():
+    FakeAccountApi.error = RuntimeError("boom")
+
+    result = await _flow().async_step_user({"token": "tok"})
+
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "unknown"}

@@ -1,11 +1,13 @@
 import pytest
 
 from custom_components.ha_opencarwings import sensor as sensor_mod
+from tests.helpers import make_car
+from custom_components.ha_opencarwings.sensor import CAR_SENSORS
 
 
 @pytest.mark.asyncio
 async def test_sensor_creates_car_entities():
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"cars": [{"vin": "VIN1", "model_name": "M1"}, {"vin": "VIN2", "model_name": "M2"}]}}}})()
+    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"cars": [make_car("VIN1"), make_car("VIN2")]}}}})()
 
     # Capture added entities
     added = []
@@ -16,9 +18,9 @@ async def test_sensor_creates_car_entities():
     entry = type("E", (), {"entry_id": "e1"})()
     await sensor_mod.async_setup_entry(hass, entry, add)
 
-    # We expect one CarListSensor plus EV sensors per car (CarSensor removed as redundant)
-    # For two cars: 1 list + (range_on, range_off, soc, soc_display, charge_bars, cable, charging, charge_finish, quick_charging, ac_status, eco_mode, car_running, odometer, full_chg_time, limit_chg_time, obc_6kw, status, last_updated, last_requested, vin) * 2 = 1 + 20*2 = 41
-    assert len(added) == 41
+    # One CarListSensor plus, per car, the generic value sensors and
+    # status, last_updated, last_requested and vin
+    assert len(added) == 1 + 2 * (len(CAR_SENSORS) + 4)
 
     # verify some unique ids for the new sensors (one example per car)
     unique_ids = [getattr(e, 'unique_id', None) for e in added]

@@ -1,11 +1,13 @@
 import pytest
 
 from custom_components.ha_opencarwings import device_tracker as tracker_mod
+from custom_components.ha_opencarwings.util import CarData
+from tests.helpers import make_car
 
 
 @pytest.mark.asyncio
 async def test_no_tracker_created_without_vin():
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"cars": [{"model_name": "M1", "last_location": {"lat": "50.0", "lon": "20.0"}}]}}}})()
+    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"cars": [CarData(vin="")]}}}})()
 
     trackers = []
 
@@ -20,7 +22,7 @@ async def test_no_tracker_created_without_vin():
 
 @pytest.mark.asyncio
 async def test_tracker_available_false_when_no_location():
-    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"cars": [{"vin": "VIN1", "model_name": "M1"}]}}}})()
+    hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"cars": [make_car("VIN1")]}}}})()
 
     trackers = []
 
@@ -44,7 +46,7 @@ async def test_coordinator_refresh_before_creation():
             self.data = None
 
         async def async_request_refresh(self):
-            self.data = [{"vin": "VIN1", "last_location": {"lat": "50.0", "lon": "20.0"}}]
+            self.data = [make_car("VIN1", location={"lat": "50.0", "lon": "20.0"})]
 
     coord = FakeCoordinator()
     hass = type("H", (), {"data": {"ha_opencarwings": {"e1": {"coordinator": coord}}}})()
