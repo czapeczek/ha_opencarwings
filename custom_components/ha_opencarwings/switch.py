@@ -10,7 +10,7 @@ from opencarwings_client import ApiClient, ApiCommandCreateRequest, CommandRespo
 from homeassistant.components.switch import SwitchEntity
 
 from . import DOMAIN
-from .util import CarData
+from .util import CarData, apply_command_result
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -71,14 +71,9 @@ class CarACSwitch(SwitchEntity):
             ))
             try:
                 coordinator = self.hass.data[DOMAIN][self._entry_id].get("coordinator")
-                if coordinator:
-                    if self._vin in coordinator.data:
-                        car_curr_data: CarData = coordinator.data[self._vin]
-                        car_curr_data.car_detail = command_result.car
-                        coordinator.data[self._vin] = car_curr_data
-                        await coordinator.async_update()
+                apply_command_result(coordinator, self._vin, command_result.car)
             except Exception:  # pragma: no cover - coordinator failure
-                _LOGGER.exception("Failed to update coordinator data after requesting charge start for %s", self._vin)
+                _LOGGER.exception("Failed to update coordinator data after A/C command for %s", self._vin)
 
         except Exception:  # pragma: no cover - network
             _LOGGER.exception("Failed to turn A/C on for %s", self._vin)
@@ -94,14 +89,9 @@ class CarACSwitch(SwitchEntity):
             ))
             try:
                 coordinator = self.hass.data[DOMAIN][self._entry_id].get("coordinator")
-                if coordinator:
-                    if self._vin in coordinator.data:
-                        car_curr_data: CarData = coordinator.data[self._vin]
-                        car_curr_data.car_detail = command_result.car
-                        coordinator.data[self._vin] = car_curr_data
-                        await coordinator.async_update()
+                apply_command_result(coordinator, self._vin, command_result.car)
             except Exception:  # pragma: no cover - coordinator failure
-                _LOGGER.exception("Failed to update coordinator data after requesting charge start for %s", self._vin)
+                _LOGGER.exception("Failed to update coordinator data after A/C command for %s", self._vin)
 
         except Exception:  # pragma: no cover - network
             _LOGGER.exception("Failed to turn A/C off for %s", self._vin)

@@ -10,7 +10,7 @@ from homeassistant.components.button import ButtonEntity
 from typing import Any, List
 
 from . import DOMAIN
-from .util import CarData
+from .util import CarData, apply_command_result
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -92,15 +92,9 @@ class OpenCarWingsCommandButton(OpenCarwingsButton):
                 command_pin=self._command_pin
             ))
             try:
-                if self._coordinator:
-                    if self._vin in self._coordinator.data:
-                        new_data = self._coordinator.data
-                        car_curr_data: CarData = new_data[self._vin]
-                        car_curr_data.car_detail = command_result.car
-                        new_data[self._vin] = car_curr_data
-                        await self._coordinator.async_update(new_data)
+                apply_command_result(self._coordinator, self._vin, command_result.car)
             except Exception:  # pragma: no cover - coordinator failure
-                _LOGGER.exception("Failed to update coordinator data after requesting charge start for %s", self._vin)
+                _LOGGER.exception("Failed to update coordinator data after command for %s", self._vin)
         except Exception:  # pragma: no cover - network
             _LOGGER.exception("Failed to request data refresh for %s", self._vin)
             raise
@@ -190,7 +184,7 @@ class CarChargeStart80Button(OpenCarWingsCommandButton):
         return f"ha_opencarwings_car_chargestart80_{self._vin}"
 
 class CarDoorLockButton(OpenCarWingsCommandButton):
-    """Button that sends a 'Charge start 80%' command for a specific car."""
+    """Button that sends a 'Lock doors' command for a specific car."""
 
     def __init__(self, entry_id: str, car: CarData, coordinator=None) -> None:
         super().__init__(7, entry_id, car, coordinator)
@@ -200,7 +194,7 @@ class CarDoorLockButton(OpenCarWingsCommandButton):
         car_instance = self._car.get_latest_car()
         # Friendly label: prefer car nickname, then model name, then VIN
         label = (car_instance.nickname or self._vin) if car_instance is not None else self._vin
-        return f"Unlock Doors for {label}"
+        return f"Lock Doors for {label}"
 
     @property
     def unique_id(self) -> str:

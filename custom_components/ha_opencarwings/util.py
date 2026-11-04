@@ -54,3 +54,22 @@ class CarData:
             "identifiers": {(DOMAIN, self.vin)},
             "name": self.vin
         }
+
+
+def apply_command_result(coordinator, vin: str, car: Car | None) -> bool:
+    """Store the car returned by a command in the coordinator and notify listeners.
+
+    coordinator.data is a list of CarData; returns True when the car was found.
+    """
+    if coordinator is None or car is None or not coordinator.data:
+        return False
+    updated = []
+    found = False
+    for item in coordinator.data:
+        if item.vin == vin:
+            item = CarData(vin=item.vin, list_car=item.list_car, car_detail=car)
+            found = True
+        updated.append(item)
+    if found:
+        coordinator.async_set_updated_data(updated)
+    return found

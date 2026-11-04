@@ -69,6 +69,40 @@ class OpenCARWINGSConfigFlow(config_entries.ConfigFlow, domain="ha_opencarwings"
                     _LOGGER.exception(err)
                     errors["base"] = "unknown"
 
+        return await self._show_user_form(errors)
+
+    async def async_step_reauth(self, entry_data):
+        """Start reauthentication when the stored API token is rejected."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input=None):
+        """Ask for a new API token and update the existing entry."""
+        errors = {}
+        entry = self._get_reauth_entry()
+        if user_input is not None:
+            api_token = user_input[CONF_TOKEN]
+            options = getattr(entry, "options", None) or {}
+            api_base = options.get("api_base_url", entry.data.get("api_base_url", DEFAULT_API_BASE))
+            hass = getattr(self, "hass", None)
+            async with await hass.async_add_executor_job(get_client, hass, api_base, api_token) as client:
+                try:
+                    await opencarwings_client.AccountApi(client).account_detail_list()
+                except ApiException as err:
+                    _LOGGER.exception(err)
+                    errors["base"] = "auth" if err.status == 401 else "unknown"
+                except Exception as err:
+                    _LOGGER.exception(err)
+                    errors["base"] = "unknown"
+                else:
+                    return self.async_update_reload_and_abort(entry, data_updates={"api_token": api_token})
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema({vol.Required(CONF_TOKEN): str}),
+            errors=errors,
+        )
+
+    async def _show_user_form(self, errors):
         # Prefer to show a pretty select when Home Assistant's selector helpers
         # are available; fall back to a numeric choice list otherwise.
         try:

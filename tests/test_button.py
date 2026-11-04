@@ -114,3 +114,44 @@ async def test_command_button_error_propagates(monkeypatch, fake_cars_api):
 
     with pytest.raises(RuntimeError):
         await _by_prefix(added, "ha_opencarwings_car_refresh_").async_press()
+
+
+@pytest.mark.asyncio
+async def test_lock_and_unlock_button_names_differ():
+    added = await _setup(_hass(coordinator=None, cars=[make_car("VIN1", nickname="MyCar")]))
+
+    assert _by_prefix(added, "ha_opencarwings_car_doorlock_").name == "Lock Doors for MyCar"
+    assert _by_prefix(added, "ha_opencarwings_car_doorunlock_").name == "Unlock Doors for MyCar"
+
+
+class _Coordinator:
+    def __init__(self, data):
+        self.data = data
+        self.updates = 0
+
+    def async_set_updated_data(self, data):
+        self.data = data
+        self.updates += 1
+
+
+@pytest.mark.asyncio
+async def test_command_button_updates_coordinator_with_returned_car(monkeypatch, fake_cars_api):
+    from types import SimpleNamespace
+
+    returned = make_car("VIN1", nickname="Fresh").car_detail
+
+    async def _create(self, vin, request):
+        return SimpleNamespace(car=returned)
+
+    monkeypatch.setattr(fake_cars_api, "api_command_create", _create)
+    coord = _Coordinator([make_car("VIN1", nickname="Stale", detail=False), make_car("VIN2")])
+    added = await _setup(_hass(client=object(), coordinator=coord, cars=coord.data))
+
+    await _by_prefix(added, "ha_opencarwings_car_refresh_").async_press()
+
+    assert coord.updates == 1
+    assert [c.vin for c in coord.data] == ["VIN1", "VIN2"]
+    assert coord.data[0].car_detail is returned
+    assert coord.data[0].get_latest_car().nickname == "Fresh"
+    # the other car is untouched
+    assert coord.data[1].car_detail is not None and coord.data[1].car_detail is not returned

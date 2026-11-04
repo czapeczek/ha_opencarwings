@@ -16,6 +16,13 @@ class ConfigFlow:
     def async_show_form(self, *, step_id: str, data_schema=None, errors=None):
         return {"type": "form", "step_id": step_id, "data_schema": data_schema, "errors": errors or {}}
 
+    def _get_reauth_entry(self):
+        return self._reauth_entry
+
+    def async_update_reload_and_abort(self, entry, *, data_updates=None, **kwargs):
+        entry.data = {**entry.data, **(data_updates or {})}
+        return {"type": "abort", "reason": "reauth_successful"}
+
 
 class ConfigEntry:
     """Minimal stub representing a config entry."""

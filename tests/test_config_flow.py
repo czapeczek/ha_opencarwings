@@ -84,3 +84,34 @@ async def test_config_flow_unexpected_error():
 
     assert result["type"] == "form"
     assert result["errors"] == {"base": "unknown"}
+
+
+def _reauth_flow():
+    flow = _flow()
+    flow._reauth_entry = type("Entry", (), {"data": {"api_token": "old", "api_base_url": "https://x"}})()
+    return flow
+
+
+@pytest.mark.asyncio
+async def test_reauth_updates_token():
+    flow = _reauth_flow()
+
+    form = await flow.async_step_reauth({"api_token": "old"})
+    assert form["type"] == "form" and form["step_id"] == "reauth_confirm"
+
+    result = await flow.async_step_reauth_confirm({"token": "new"})
+    assert result == {"type": "abort", "reason": "reauth_successful"}
+    assert flow._reauth_entry.data["api_token"] == "new"
+    assert flow._reauth_entry.data["api_base_url"] == "https://x"
+
+
+@pytest.mark.asyncio
+async def test_reauth_rejected_token_shows_error():
+    FakeAccountApi.error = ApiException(status=401, reason="Unauthorized")
+    flow = _reauth_flow()
+
+    result = await flow.async_step_reauth_confirm({"token": "bad"})
+
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "auth"}
+    assert flow._reauth_entry.data["api_token"] == "old"
