@@ -1,10 +1,11 @@
 {
   "domain": "ha_opencarwings",
   "name": "OpenCARWINGS Integration",
-  "version": "0.5.3",
+  "version": "1.0.0",
   "config_flow": true,
   "iot_class": "cloud_polling",
   "documentation": "https://github.com/czapeczek/ha_opencarwings",
   "codeowners": ["@czapeczek", "@tomeczko"],
-  "platforms": ["sensor", "switch", "device_tracker", "button"]
+  "platforms": ["sensor", "switch", "device_tracker", "button"],
+  "requirements": ["git+https://github.com/developerfromjokela/opencarwings-python.git@master"]
 }

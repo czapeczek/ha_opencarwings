@@ -1,23 +1,27 @@
 """Switch platform to control car climate (A/C) as a simple switch."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, List
 import logging
+
+import opencarwings_client
+from opencarwings_client import ApiClient, ApiCommandCreateRequest, CommandResponse
 
 from homeassistant.components.switch import SwitchEntity
 
 from . import DOMAIN
+from .util import CarData
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
-    cars = data.get("cars", [])
+    cars: List[CarData] = data.get("cars", [])
 
     entities = []
     for car in cars:
-        if car.get("vin"):
+        if car.vin:
             ent = CarACSwitch(entry.entry_id, car)
             # Tests call entity methods directly; set hass here for testability
             ent.hass = hass
@@ -29,16 +33,16 @@ async def async_setup_entry(hass, entry, async_add_entities):
 class CarACSwitch(SwitchEntity):
     """Represents the car A/C as a switch."""
 
-    def __init__(self, entry_id: str, car: dict) -> None:
+    def __init__(self, entry_id: str, car: CarData) -> None:
         self._entry_id = entry_id
         self._car = car
-        self._vin = car.get("vin")
+        self._vin = car.vin
         # state: True = on, False = off (no real-time state unless refreshed)
         self._is_on = False
 
     @property
     def name(self) -> str:
-        return f"{self._car.get('model_name') or 'Car'} A/C"
+        return f"{self._car.car_model_data().get("name", None) or 'Car'} A/C"
 
     @property
     def unique_id(self) -> str:
@@ -49,20 +53,33 @@ class CarACSwitch(SwitchEntity):
         return self._is_on
 
     @property
+    def is_available(self) -> bool:
+        car_data = self._car.get_latest_car()
+        return car_data is not None and car_data.command_requested == False
+
+    @property
     def device_info(self) -> dict[str, Any]:
-        return {
-            "identifiers": {(DOMAIN, self._vin)},
-            "name": self._car.get("model_name"),
-            "manufacturer": self._car.get("make"),
-            "model": self._car.get("model_name"),
-        }
+        return self._car.car_model_data()
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn A/C on by sending command_type 3 to `/api/command/{vin}/`."""
         client = hass_client(self.hass, self._entry_id)
         try:
-            await client.async_request("POST", f"/api/command/{self._vin}/", json={"vin": self._vin, "command_type": 3})
-            self._is_on = True
+            cars_api = opencarwings_client.CarsApi(client)
+            command_result: CommandResponse = await cars_api.api_command_create(self._vin, ApiCommandCreateRequest(
+                command_type=3
+            ))
+            try:
+                coordinator = self.hass.data[DOMAIN][self._entry_id].get("coordinator")
+                if coordinator:
+                    if self._vin in coordinator.data:
+                        car_curr_data: CarData = coordinator.data[self._vin]
+                        car_curr_data.car_detail = command_result.car
+                        coordinator.data[self._vin] = car_curr_data
+                        await coordinator.async_update()
+            except Exception:  # pragma: no cover - coordinator failure
+                _LOGGER.exception("Failed to update coordinator data after requesting charge start for %s", self._vin)
+
         except Exception:  # pragma: no cover - network
             _LOGGER.exception("Failed to turn A/C on for %s", self._vin)
             raise
@@ -71,13 +88,26 @@ class CarACSwitch(SwitchEntity):
         """Turn A/C off by sending command_type 4."""
         client = hass_client(self.hass, self._entry_id)
         try:
-            await client.async_request("POST", f"/api/command/{self._vin}/", json={"vin": self._vin, "command_type": 4})
-            self._is_on = False
+            cars_api = opencarwings_client.CarsApi(client)
+            command_result: CommandResponse = await cars_api.api_command_create(self._vin, ApiCommandCreateRequest(
+                command_type=4
+            ))
+            try:
+                coordinator = self.hass.data[DOMAIN][self._entry_id].get("coordinator")
+                if coordinator:
+                    if self._vin in coordinator.data:
+                        car_curr_data: CarData = coordinator.data[self._vin]
+                        car_curr_data.car_detail = command_result.car
+                        coordinator.data[self._vin] = car_curr_data
+                        await coordinator.async_update()
+            except Exception:  # pragma: no cover - coordinator failure
+                _LOGGER.exception("Failed to update coordinator data after requesting charge start for %s", self._vin)
+
         except Exception:  # pragma: no cover - network
             _LOGGER.exception("Failed to turn A/C off for %s", self._vin)
             raise
 
 
-def hass_client(hass, entry_id: str):
+def hass_client(hass, entry_id: str) -> ApiClient:
     """Helper to get the API client stored in hass.data."""
     return hass.data[DOMAIN][entry_id]["client"]

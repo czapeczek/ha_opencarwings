@@ -1,4 +1,4 @@
-CONF_USERNAME = "username"
-CONF_PASSWORD = "password"
+CONF_APITOKEN = "apitoken"
 ATTR_ATTRIBUTION = "attribution"
 PERCENTAGE = "%"
+CONF_TOKEN = "token"

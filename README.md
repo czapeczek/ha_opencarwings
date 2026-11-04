@@ -107,6 +107,12 @@ The integration obtains JWT tokens (access & refresh) during setup and refreshes
 
 ---
 
+## To-Do list
+
+- [ ] Implement WebSockets client, to receive real-time updates
+
+---
+
 ## Reporting issues & Contributing 🤝
 
 Found a bug or want a feature? Please open an issue or a PR at: https://github.com/czapeczek/ha_opencarwings
