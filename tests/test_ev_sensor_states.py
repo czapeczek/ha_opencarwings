@@ -63,23 +63,6 @@ async def test_ev_sensor_states():
     odom2 = next(x for x in added2 if x.unique_id == "ha_opencarwings_odometer_VIN2")
     assert _val(odom2) is None
 
-    eco = next(x for x in added if x.unique_id == "ha_opencarwings_eco_mode_VIN1")
-    assert _val(eco) is True
-
-    running = next(x for x in added if x.unique_id == "ha_opencarwings_car_running_VIN1")
-    assert _val(running) is False
-
-    charging = next(x for x in added if x.unique_id == "ha_opencarwings_charging_VIN1")
-    assert _val(charging) is True
-
-    charge_finish = next(x for x in added if x.unique_id == "ha_opencarwings_charge_finish_VIN1")
-    assert _val(charge_finish) is False
-
-    quick = next(x for x in added if x.unique_id == "ha_opencarwings_quick_charging_VIN1")
-    assert _val(quick) is True
-
-    ac = next(x for x in added if x.unique_id == "ha_opencarwings_ac_status_VIN1")
-    assert _val(ac) is True
 
     full = next(x for x in added if x.unique_id == "ha_opencarwings_full_chg_time_VIN1")
     assert _val(full) == 30

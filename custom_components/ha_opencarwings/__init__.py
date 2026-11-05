@@ -8,7 +8,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 DOMAIN = "ha_opencarwings"
-PLATFORMS = ["sensor", "switch", "device_tracker", "button"]
+PLATFORMS = ["sensor", "binary_sensor", "switch", "device_tracker", "button"]
 
 # default: 15 minutes
 DEFAULT_SCAN_INTERVAL_MIN = 15

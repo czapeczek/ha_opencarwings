@@ -157,10 +157,6 @@ def _to_chgtime(v: Any) -> int | None:
     except Exception:
         return None
 
-def _plugged_to_str(v: Any) -> str:
-    return "plugged" if bool(v) else "unplugged"
-
-
 CAR_SENSORS: list[CarSensorSpec] = [
     CarSensorSpec(
         "range_acon",
@@ -183,21 +179,11 @@ CAR_SENSORS: list[CarSensorSpec] = [
     CarSensorSpec("capacity_bars", "Capacity Bars", _ev_getter("cap_bars")),
     CarSensorSpec("gids", "GIDs", _ev_getter("gids")),
     CarSensorSpec("max_gids", "Maximum GIDs when battery is new", _ev_getter("max_gids")),
-    CarSensorSpec("plugged_in", "Charge Cable", _ev_getter("plugged_in"), transform=_plugged_to_str),
-    CarSensorSpec("charging", "Charging", _ev_getter("charging")),
-    CarSensorSpec("charge_finish", "Charge Finish", _ev_getter("charge_finish")),
-    CarSensorSpec("quick_charging", "Quick Charging", _ev_getter("quick_charging")),
-    CarSensorSpec("ac_status", "AC Status", _ev_getter("ac_status")),
-    CarSensorSpec("eco_mode", "Eco Mode", _ev_getter("eco_mode")),
-    CarSensorSpec("car_running", "Running", _ev_getter("car_running")),
     CarSensorSpec("odometer", "Odometer", _ev_getter("", fallback="odometer"), transform=_to_int, unit_of_measurement="km"),
     CarSensorSpec("last_requested_command", "Last Requested Command", _ev_getter("", fallback="command_type_display")),
     CarSensorSpec("full_chg_time", "3 kW/240 V Charge Time", _ev_getter("full_chg_time"), transform=_to_chgtime, unit_of_measurement="s", device_class=SensorDeviceClass.DURATION),
     CarSensorSpec("limit_chg_time", "1 kW/120 V Charge Time", _ev_getter("limit_chg_time"), transform=_to_chgtime, unit_of_measurement="s", device_class=SensorDeviceClass.DURATION),
     CarSensorSpec("obc_6kw", "6.6 kW Charge Time", _ev_getter("obc_6kw"), transform=_to_chgtime, unit_of_measurement="s", device_class=SensorDeviceClass.DURATION),
-    CarSensorSpec("obc_6kw_avail", "6.6 kW OBC Exists", _ev_getter("obc_6kw_avail")),
-    CarSensorSpec("batt_heater_avail", "Battery Heater Exists", _ev_getter("batt_heater_avail")),
-    CarSensorSpec("batt_heater_status", "Battery Heater Active", _ev_getter("batt_heater_status")),
     CarSensorSpec("wh_content", "Battery Wh content", _ev_getter("wh_content"), device_class=SensorDeviceClass.ENERGY, unit_of_measurement="Wh"),
     CarSensorSpec("cabin_temp", "Cabin Temperature", _ev_getter("cabin_temp"), device_class=SensorDeviceClass.TEMPERATURE, unit_of_measurement="°C"),
 ]
