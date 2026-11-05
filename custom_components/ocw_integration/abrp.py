@@ -73,6 +73,18 @@ def is_car_active(car_data: Dict[str, Any]) -> bool:
     return car_running or is_charging or (car_gear not in (0, None, "0"))
 
 
+def is_car_driving(car_data: Dict[str, Any]) -> bool:
+    """Return True only when the car is being driven (ON / in gear and NOT charging)."""
+    ev_info = car_data.get("ev_info") or {}
+    if not isinstance(ev_info, dict):
+        return False
+    if bool(ev_info.get("charging", False)):
+        return False
+    car_running = bool(ev_info.get("car_running", False))
+    car_gear = ev_info.get("car_gear", 0)
+    return car_running or (car_gear not in (0, None, "0"))
+
+
 def estimate_carwings_charging_power_kw(ev_info: Dict[str, Any]) -> Optional[float]:
     """Estimate AC/DC charging power (negative kW for ABRP) from OpenCARWINGS TCU charge time registers.
 
@@ -457,11 +469,10 @@ class ABRPBridge:
     async def async_heartbeat(self, coordinator: Any = None) -> None:
         """Periodic 30-second callback while ABRP is enabled.
 
-        When the car is ON (driving) or charging:
-        - Requests an active TCU refresh (command_type=1) every 60 seconds.
-        - Refreshes the Home Assistant coordinator and pushes telemetry to ABRP every 30 seconds.
-        When the car is OFF and not charging:
-        - Does nothing.
+        - Forces a TCU refresh (command_type=1) every 60s ONLY while actively driving.
+        - While charging, relies on OpenCARWINGS server updates (zero extra SIM data)
+          and only reads from the server + keeps ABRP online every 30s.
+        - When parked and off, does nothing.
         """
         if not self.user_token:
             return
@@ -485,19 +496,21 @@ class ABRPBridge:
                 continue
             active_cars.append(car_data)
 
-            # Request a minute-by-minute TCU refresh from the car while active
+            # Force TCU refresh (command_type=1) ONLY while driving (never while charging)
+            # to preserve the 20MB/month IoT SIM data allowance.
             last_tcu_req = self._last_tcu_refresh_times.get(vin, 0.0)
             if (
-                not car_data.get("command_requested", False)
+                is_car_driving(car_data)
+                and not car_data.get("command_requested", False)
                 and (now - last_tcu_req) >= ABRP_ACTIVE_TCU_REFRESH_SECONDS
                 and hasattr(self.ocw_client, "async_request_car_refresh")
             ):
                 try:
                     await self.ocw_client.async_request_car_refresh(vin)
                     self._last_tcu_refresh_times[vin] = now
-                    _LOGGER.debug("Requested 1-min active TCU refresh (command_type=1) for %s", vin)
+                    _LOGGER.debug("Requested 1-min driving TCU refresh (command_type=1) for %s", vin)
                 except Exception as err:
-                    _LOGGER.debug("Could not request active TCU refresh for %s: %s", vin, err)
+                    _LOGGER.debug("Could not request driving TCU refresh for %s: %s", vin, err)
 
         if not active_cars:
             return
