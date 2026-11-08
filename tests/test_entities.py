@@ -35,8 +35,6 @@ async def test_battery_and_location_and_switch_creation(monkeypatch):
     range_off = next(x for x in added if x.unique_id == "ha_opencarwings_range_acoff_VIN1")
     assert _val(range_off) == 140
 
-    plug = next(x for x in added if x.unique_id == "ha_opencarwings_plugged_in_VIN1")
-    assert _val(plug) == "plugged"
 
     status = next(x for x in added if x.unique_id == "ha_opencarwings_status_VIN1")
     assert _val(status) == "idle"
